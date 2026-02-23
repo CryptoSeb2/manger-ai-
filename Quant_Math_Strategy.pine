@@ -1,0 +1,210 @@
+//@version=6
+// Quant Math Strategy — Jane Street–style math: probability, statistics, regression,
+// multi-factor score, reversion speed, volatility regime, optional confirmation.
+// Dense math, no narrative.
+
+strategy("Quant Math Strategy", shorttitle="QuantMath", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=10, initial_capital=10000, commission_value=0.04, commission_type=strategy.commission.percent)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INPUTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// 1) Probability & Statistics — Z-Score
+z_len   = input.int(20, "Z-Score lookback", minval=5, group="1. Statistics")
+z_long  = input.float(2.0, "Z long (price ≤ mean - z×σ)", minval=0.5, step=0.25, group="1. Statistics")
+z_short = input.float(2.0, "Z short (price ≥ mean + z×σ)", minval=0.5, step=0.25, group="1. Statistics")
+
+// 2) Linear regression (equilibrium + slope ≈ drift)
+reg_len = input.int(20, "Regression length", minval=5, group="2. Regression")
+use_drift = input.bool(true, "Use slope (drift) filter", group="2. Regression")
+
+// 3) Stochastic-style: normalized deviation (price - equilibrium) / volatility
+use_norm_dev = input.bool(true, "Use ATR-normalized deviation from regression", group="3. Volatility")
+atr_len = input.int(14, "ATR length", minval=1, group="3. Volatility")
+
+// 4) Reversion speed (deviation shrinking = mean reversion in progress)
+use_rev_speed = input.bool(true, "Require reversion speed (deviation improving)", group="4. Reversion")
+rev_len = input.int(5, "Reversion lookback", minval=2, group="4. Reversion")
+
+// 5) Momentum / ROC (rate of change)
+roc_len = input.int(5, "ROC length", minval=1, group="5. Momentum")
+use_roc = input.bool(true, "Require momentum confirmation", group="5. Momentum")
+
+// 6) Multi-factor score (linear combination = linear algebra)
+use_score = input.bool(true, "Use multi-factor score threshold", group="6. Score")
+score_w_z = input.float(1.0, "Weight: Z-Score", minval=0, step=0.25, group="6. Score")
+score_w_dev = input.float(1.0, "Weight: Normalized deviation", minval=0, step=0.25, group="6. Score")
+score_w_roc = input.float(0.5, "Weight: Momentum", minval=0, step=0.25, group="6. Score")
+score_min_long = input.float(2.0, "Min score for long", minval=0.5, step=0.25, group="6. Score")
+score_min_short = input.float(2.0, "Min score for short", minval=0.5, step=0.25, group="6. Score")
+
+// 7) Volatility regime (only trade when vol in range)
+atr_ma_len = input.int(20, "ATR MA length", minval=1, group="7. Regime")
+atr_min_mult = input.float(0.6, "ATR ≥ MA(ATR)×this", minval=0.2, step=0.1, group="7. Regime")
+atr_max_mult = input.float(2.5, "ATR ≤ MA(ATR)×this", minval=1.0, step=0.2, group="7. Regime")
+use_regime = input.bool(true, "Only trade in volatility regime", group="7. Regime")
+
+// 8) Optional two-bar confirmation (Bayesian-style: reduce false positives)
+use_confirm = input.bool(false, "Two-bar confirmation", group="8. Confirmation")
+
+// 9) Volume
+use_vol = input.bool(true, "Volume ≥ MA(volume)", group="9. Volume")
+vol_len = input.int(20, "Volume MA length", minval=1, group="9. Volume")
+
+// Risk
+stop_atr = input.float(1.5, "Stop (ATR mult)", minval=0.5, step=0.25, group="Risk")
+target_r = input.float(2.0, "Target (R mult)", minval=0.5, step=0.5, group="Risk")
+max_per_day = input.int(3, "Max per direction per day", minval=1, maxval=10, group="Risk")
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 1) PROBABILITY & STATISTICS — Z-Score
+// ═══════════════════════════════════════════════════════════════════════════════
+
+mean_p = ta.sma(close, z_len)
+std_p  = ta.stdev(close, z_len)
+z      = std_p > 0 ? (close - mean_p) / std_p : 0.0
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 2) LINEAR REGRESSION — Equilibrium + slope (drift)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+reg    = ta.linreg(close, reg_len, 0)
+reg_p  = ta.linreg(close, reg_len, 1)
+slope  = reg - reg_p   // drift: positive = up, negative = down
+
+drift_ok_long  = not use_drift or slope > slope[1] or slope > 0
+drift_ok_short = not use_drift or slope < slope[1] or slope < 0
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 3) STOCHASTIC-STYLE — Normalized deviation (price - equilibrium) / volatility
+// ═══════════════════════════════════════════════════════════════════════════════
+
+atr_val = ta.atr(atr_len)
+dev_raw = close - reg
+dev_norm = atr_val > 0 ? dev_raw / atr_val : 0.0   // in ATR units
+
+// Long when price below equilibrium (dev_norm < 0), short when above (dev_norm > 0)
+dev_ok_long  = not use_norm_dev or dev_norm < 0
+dev_ok_short = not use_norm_dev or dev_norm > 0
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 4) REVERSION SPEED — Deviation shrinking (mean reversion in progress)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+dev_from_mean = close - mean_p
+dev_prev     = close[1] - mean_p[1]
+delta_dev    = dev_from_mean - dev_prev   // positive when below mean and moving up toward mean
+
+rev_speed_long  = not use_rev_speed or (dev_from_mean < 0 and delta_dev > 0) or (dev_from_mean > 0 and delta_dev < 0)
+rev_speed_short = not use_rev_speed or (dev_from_mean > 0 and delta_dev < 0) or (dev_from_mean < 0 and delta_dev > 0)
+
+// Simpler: for long we want "was extended down, now improving"
+rev_ok_long  = not use_rev_speed or (z < 0 and z > z[1])
+rev_ok_short = not use_rev_speed or (z > 0 and z < z[1])
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 5) MOMENTUM — Rate of change
+// ═══════════════════════════════════════════════════════════════════════════════
+
+roc = roc_len > 0 ? (close - close[roc_len]) / math.max(close[roc_len], syminfo.mintick) * 100 : 0.0
+roc_up   = roc > roc[1]
+roc_down = roc < roc[1]
+
+roc_ok_long  = not use_roc or roc_up or roc > 0
+roc_ok_short = not use_roc or roc_down or roc < 0
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 6) MULTI-FACTOR SCORE — Linear combination (linear algebra)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Long: want z negative (oversold) → use -z as contribution. Deviation negative (below reg) → use -dev_norm. ROC up → 1 else 0.
+f_z_long   = -z
+f_dev_long = -dev_norm
+f_roc_long = (roc_up or roc > 0) ? 1.0 : 0.0
+score_long = score_w_z * f_z_long + score_w_dev * f_dev_long + score_w_roc * f_roc_long
+
+f_z_short   = z
+f_dev_short = dev_norm
+f_roc_short = (roc_down or roc < 0) ? 1.0 : 0.0
+score_short = score_w_z * f_z_short + score_w_dev * f_dev_short + score_w_roc * f_roc_short
+
+score_ok_long  = not use_score or score_long >= score_min_long
+score_ok_short = not use_score or score_short >= score_min_short
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 7) VOLATILITY REGIME
+// ═══════════════════════════════════════════════════════════════════════════════
+
+atr_ma = ta.sma(atr_val, atr_ma_len)
+regime_ok = not use_regime or (atr_ma > 0 and atr_val >= atr_ma * atr_min_mult and atr_val <= atr_ma * atr_max_mult)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 8) TWO-BAR CONFIRMATION (Bayesian-style)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+was_extreme_long  = z[1] < -z_long
+was_extreme_short = z[1] > z_short
+confirm_long  = not use_confirm or (was_extreme_long and close > open and close > close[1])
+confirm_short = not use_confirm or (was_extreme_short and close < open and close < close[1])
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 9) VOLUME
+// ═══════════════════════════════════════════════════════════════════════════════
+
+vol_ma = ta.sma(volume, vol_len)
+vol_ok = not use_vol or volume >= vol_ma
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// COMBINE: All math conditions
+// ═══════════════════════════════════════════════════════════════════════════════
+
+entry_long  = z < -z_long and drift_ok_long and dev_ok_long and rev_ok_long and roc_ok_long and score_ok_long and regime_ok and confirm_long and vol_ok
+entry_short = z > z_short and drift_ok_short and dev_ok_short and rev_ok_short and roc_ok_short and score_ok_short and regime_ok and confirm_short and vol_ok
+
+new_day = ta.change(time("D")) != 0
+var int long_count  = 0
+var int short_count = 0
+if new_day
+    long_count  := 0
+    short_count := 0
+
+allow_long  = long_count < max_per_day
+allow_short = short_count < max_per_day
+if entry_long and allow_long
+    long_count += 1
+if entry_short and allow_short
+    short_count += 1
+
+do_long  = entry_long and allow_long
+do_short = entry_short and allow_short
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// RISK
+// ═══════════════════════════════════════════════════════════════════════════════
+
+r_l = atr_val * stop_atr
+r_s = atr_val * stop_atr
+stop_long   = close - r_l
+stop_short  = close + r_s
+tgt_long    = close + r_l * target_r
+tgt_short   = close - r_s * target_r
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// EXECUTE
+// ═══════════════════════════════════════════════════════════════════════════════
+
+if do_long
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Long Exit", "Long", stop=stop_long, limit=tgt_long)
+if do_short
+    strategy.entry("Short", strategy.short)
+    strategy.exit("Short Exit", "Short", stop=stop_short, limit=tgt_short)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PLOTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+plot(reg, "Regression (equilibrium)", color=color.yellow, linewidth=2)
+plot(mean_p, "Mean", color=color.new(color.blue, 60), linewidth=1)
+plotshape(do_long, "Long", shape.triangleup, location.belowbar, color.green, size=size.small)
+plotshape(do_short, "Short", shape.triangledown, location.abovebar, color.red, size=size.small)

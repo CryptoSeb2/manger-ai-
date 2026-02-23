@@ -1,0 +1,114 @@
+//@version=6
+// ORB+ Strategy: 8am ORB breakout + trend + volume. Backtestable.
+// Best on 15m chart; ORB = first 15min candle (8:00-8:15 NY) wick-to-wick.
+
+strategy("ORB+ Strategy", shorttitle="ORB+", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=10, initial_capital=10000, commission_value=0.04, commission_type=strategy.commission.percent)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INPUTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ORB (8:00–8:15 AM NY = one 15m bar)
+use_8am_orb   = input.bool(true, "Use 8:00 AM NY ORB (first 15 min)", group="ORB")
+orb_bars      = input.int(1, "ORB bars (1 = one 15m candle on 15m chart)", minval=1, group="ORB")
+
+// Filters
+use_vol_filter = input.bool(true, "Require volume > MA(volume)", group="Filters")
+vol_len       = input.int(20, "Volume MA length", minval=1, group="Filters")
+use_trend_filter = input.bool(true, "Long only above EMA, short only below", group="Filters")
+ema_len       = input.int(50, "Trend EMA length", minval=1, group="Filters")
+
+// Stops & targets
+stop_type    = input.string("ORB", "Stop type", options=["ORB", "ATR"], group="Risk")
+atr_len      = input.int(14, "ATR length", minval=1, group="Risk")
+atr_stop_mult = input.float(1.5, "ATR stop multiplier", minval=0.5, step=0.5, group="Risk")
+target_r     = input.float(2.0, "Target (R multiple)", minval=0.5, step=0.5, group="Risk")
+use_trailing = input.bool(false, "Trail stop after 1R", group="Risk")
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SESSION: 8:00 AM NY (America/New_York)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+h = hour(time, "America/New_York")
+m = minute(time, "America/New_York")
+hhmm = h * 100 + m
+in_8am = (hhmm >= 800)
+new_8am_bar = in_8am and not in_8am[1]
+
+// ORB high/low from first bar(s) at 8am
+var float orb_high = na
+var float orb_low = na
+var int orb_bars_done = 999
+if new_8am_bar
+    orb_high := high
+    orb_low := low
+    orb_bars_done := 1
+else if in_8am and orb_bars_done < orb_bars
+    orb_high := math.max(orb_high, high)
+    orb_low := math.min(orb_low, low)
+    orb_bars_done += 1
+
+orb_ready = not na(orb_high) and not na(orb_low)
+after_orb = in_8am and orb_bars_done >= orb_bars
+
+// Volume & trend
+vol_ma = ta.sma(volume, vol_len)
+vol_ok = not use_vol_filter or volume >= vol_ma
+ema = ta.ema(close, ema_len)
+trend_ok_long = not use_trend_filter or close > ema
+trend_ok_short = not use_trend_filter or close < ema
+
+// Breakout conditions (close beyond ORB, volume, trend)
+break_long = orb_ready and after_orb and close > orb_high and close[1] <= orb_high and vol_ok and trend_ok_long
+break_short = orb_ready and after_orb and close < orb_low and close[1] >= orb_low and vol_ok and trend_ok_short
+
+// One entry per session per direction
+var bool long_done_today = false
+var bool short_done_today = false
+if new_8am_bar
+    long_done_today := false
+    short_done_today := false
+entry_long = break_long and not long_done_today
+entry_short = break_short and not short_done_today
+if entry_long
+    long_done_today := true
+if entry_short
+    short_done_today := true
+
+// Stop & target
+atr_val = ta.atr(atr_len)
+stop_dist_long = stop_type == "ORB" ? (close - orb_low) : atr_val * atr_stop_mult
+stop_dist_short = stop_type == "ORB" ? (orb_high - close) : atr_val * atr_stop_mult
+stop_price_long = close - stop_dist_long
+stop_price_short = close + stop_dist_short
+target_dist_long = stop_dist_long * target_r
+target_dist_short = stop_dist_short * target_r
+target_price_long = close + target_dist_long
+target_price_short = close - target_dist_short
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// STRATEGY ENTRIES / EXITS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+if entry_long
+    strategy.entry("Long", strategy.long)
+    if use_trailing
+        strategy.exit("Long Exit", "Long", stop=stop_price_long, limit=target_price_long, trail_offset=stop_dist_long)
+    else
+        strategy.exit("Long Exit", "Long", stop=stop_price_long, limit=target_price_long)
+if entry_short
+    strategy.entry("Short", strategy.short)
+    if use_trailing
+        strategy.exit("Short Exit", "Short", stop=stop_price_short, limit=target_price_short, trail_offset=stop_dist_short)
+    else
+        strategy.exit("Short Exit", "Short", stop=stop_price_short, limit=target_price_short)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PLOTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+plot(orb_ready ? orb_high : na, "ORB High", color=color.blue, linewidth=2)
+plot(orb_ready ? orb_low : na, "ORB Low", color=color.orange, linewidth=2)
+plot(use_trend_filter ? ema : na, "Trend EMA", color=color.purple, linewidth=1)
+plotshape(entry_long, style=shape.triangleup, location=location.belowbar, color=color.green, size=size.small)
+plotshape(entry_short, style=shape.triangledown, location=location.abovebar, color=color.red, size=size.small)

@@ -1,0 +1,137 @@
+//@version=6
+// Math Edge Strategy — Pure math only: z-score, linear regression, ROC, volatility.
+// No narratives (no ORB, sweeps, sessions). Mean reversion at statistical extremes.
+
+strategy("Math Edge Strategy", shorttitle="MathEdge", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=10, initial_capital=10000, commission_value=0.04, commission_type=strategy.commission.percent)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INPUTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Z-Score (statistical extreme: mean reversion when |z| > threshold)
+z_len    = input.int(20, "Z-Score lookback", minval=5, group="Z-Score")
+z_long   = input.float(2.0, "Z-Score long threshold (e.g. -2 = 2 std below mean)", minval=0.5, step=0.25, group="Z-Score", tooltip="Long when z < -this")
+z_short  = input.float(2.0, "Z-Score short threshold (long when z > +this)", minval=0.5, step=0.25, group="Z-Score")
+
+// Linear regression (equilibrium line + slope)
+reg_len  = input.int(20, "Regression length", minval=5, group="Regression")
+use_slope_filter = input.bool(true, "Require slope confirmation (long: slope rising, short: slope falling)", group="Regression")
+
+// Rate of change / momentum (exhaustion: momentum turning)
+roc_len  = input.int(5, "ROC (momentum) length", minval=1, group="Momentum")
+use_roc  = input.bool(true, "Require ROC reversal (momentum exhaustion)", group="Momentum")
+
+// Volatility filter (avoid dead or chaotic markets)
+atr_len  = input.int(14, "ATR length", minval=1, group="Volatility")
+atr_min  = input.float(0.6, "ATR ≥ MA(ATR) × this (skip dead)", minval=0.2, step=0.1, group="Volatility")
+atr_max  = input.float(2.5, "ATR ≤ MA(ATR) × this (skip chaos)", minval=1.0, step=0.2, group="Volatility")
+
+// Volume
+use_vol  = input.bool(true, "Require volume ≥ MA(volume)", group="Volume")
+vol_len  = input.int(20, "Volume MA length", minval=1, group="Volume")
+
+// Risk
+stop_atr = input.float(1.5, "Stop (ATR multiple)", minval=0.5, step=0.25, group="Risk")
+target_r = input.float(2.0, "Target (R multiple)", minval=0.5, step=0.5, group="Risk")
+max_per_day = input.int(3, "Max entries per direction per day", minval=1, maxval=10, group="Risk")
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MATH 1: Z-Score (standard deviations from mean)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+mean_close = ta.sma(close, z_len)
+std_close  = ta.stdev(close, z_len)
+z_score    = std_close > 0 ? (close - mean_close) / std_close : 0.0
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MATH 2: Linear regression (equilibrium + slope)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+reg_val   = ta.linreg(close, reg_len, 0)   // regression value at current bar
+reg_prev  = ta.linreg(close, reg_len, 1)
+reg_slope = reg_val - reg_prev             // slope: rising = positive, falling = negative
+
+slope_ok_long  = not use_slope_filter or reg_slope > reg_slope[1] or reg_slope > 0  // slope improving or positive
+slope_ok_short = not use_slope_filter or reg_slope < reg_slope[1] or reg_slope < 0
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MATH 3: Rate of change (momentum exhaustion)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+roc = roc_len > 0 ? (close - close[roc_len]) / math.max(close[roc_len], syminfo.mintick) * 100 : 0.0
+roc_turning_up   = roc > roc[1] and roc[1] <= roc[2]   // momentum was flat/down, now up
+roc_turning_down = roc < roc[1] and roc[1] >= roc[2]
+
+roc_ok_long  = not use_roc or roc_turning_up or roc > 0
+roc_ok_short = not use_roc or roc_turning_down or roc < 0
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MATH 4: Volatility filter
+// ═══════════════════════════════════════════════════════════════════════════════
+
+atr_val = ta.atr(atr_len)
+atr_ma  = ta.sma(atr_val, atr_len)
+vol_ok  = atr_ma > 0 and atr_val >= atr_ma * atr_min and atr_val <= atr_ma * atr_max
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Volume
+// ═══════════════════════════════════════════════════════════════════════════════
+
+vol_ma = ta.sma(volume, vol_len)
+volume_ok = not use_vol or volume >= vol_ma
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SIGNALS (pure math: z extreme + slope + ROC + volatility + volume)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+entry_long  = z_score < -z_long and slope_ok_long and roc_ok_long and vol_ok and volume_ok
+entry_short = z_score > z_short and slope_ok_short and roc_ok_short and vol_ok and volume_ok
+
+// Rate limit
+new_day = ta.change(time("D")) != 0
+var int long_count  = 0
+var int short_count = 0
+if new_day
+    long_count  := 0
+    short_count := 0
+
+allow_long  = long_count < max_per_day
+allow_short = short_count < max_per_day
+if entry_long and allow_long
+    long_count += 1
+if entry_short and allow_short
+    short_count += 1
+
+do_long  = entry_long and allow_long
+do_short = entry_short and allow_short
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// STOPS & TARGETS (ATR-based R)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+r_long  = atr_val * stop_atr
+r_short = atr_val * stop_atr
+stop_long   = close - r_long
+stop_short  = close + r_short
+target_long = close + r_long * target_r
+target_short = close - r_short * target_r
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// EXECUTE
+// ═══════════════════════════════════════════════════════════════════════════════
+
+if do_long
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Long Exit", "Long", stop=stop_long, limit=target_long)
+if do_short
+    strategy.entry("Short", strategy.short)
+    strategy.exit("Short Exit", "Short", stop=stop_short, limit=target_short)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PLOTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+plot(reg_val, "Regression (equilibrium)", color=color.yellow, linewidth=2)
+plot(mean_close, "Mean (Z-Score)", color=color.new(color.blue, 50), linewidth=1)
+plotshape(do_long, "Long", shape.triangleup, location.belowbar, color.green, size=size.small)
+plotshape(do_short, "Short", shape.triangledown, location.abovebar, color.red, size=size.small)

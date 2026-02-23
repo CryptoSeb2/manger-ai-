@@ -1,0 +1,144 @@
+//@version=6
+// Bank Move Detector: Detects when banks/smart money move the market — liquidity sweeps,
+// key session times, and rejection candles. Visual only (no strategy).
+
+indicator("Bank Move Detector", shorttitle="Bank Detect", overlay=true, max_labels_count=500, max_boxes_count=100)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INPUTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Liquidity levels
+level_source = input.string("Rolling", "Liquidity level source", options=["Rolling", "Session", "ORB (8am)"], group="Levels")
+lookback     = input.int(20, "Rolling lookback (bars)", minval=5, group="Levels")
+
+// Sweep detection
+sweep_close_inside = input.bool(true, "Require close back inside (rejection)", group="Sweep")
+min_wick_atr_pct   = input.float(20, "Min wick beyond level (% of ATR)", minval=0, maxval=100, step=5, group="Sweep")
+
+// Key times (highlight when "banks" are active)
+show_key_times = input.bool(true, "Highlight key session times", group="Times")
+session_ny     = input.bool(true, "NY (8:00–11:00 AM ET)", group="Times")
+session_london = input.bool(true, "London (3:00–6:00 AM ET)", group="Times")
+session_fix    = input.bool(true, "10 AM fix (9:45–10:15 ET)", group="Times")
+session_afternoon = input.bool(false, "Afternoon NY (2:00–4:00 PM ET)", group="Times")
+key_time_alpha = input.int(85, "Key time background opacity %", minval=20, maxval=95, group="Times")
+
+// Filters for "valid" sweep (optional)
+use_vol_filter = input.bool(true, "Sweep only when volume > MA", group="Filters")
+vol_len        = input.int(20, "Volume MA length", minval=1, group="Filters")
+
+// Display
+show_levels   = input.bool(true, "Show liquidity levels (support/resistance)", group="Display")
+show_sweep_labels = input.bool(true, "Show SWEEP LOW / SWEEP HIGH labels", group="Display")
+show_bank_move_badge = input.bool(true, "Show BANK MOVE badge on key time bars", group="Display")
+label_size    = input.string("small", "Label size", options=["tiny", "small", "normal"], group="Display")
+res_color     = input.color(color.red, "Resistance color", group="Display")
+sup_color     = input.color(color.green, "Support color", group="Display")
+sweep_long_color  = input.color(color.green, "Sweep low (long) color", group="Display")
+sweep_short_color = input.color(color.red, "Sweep high (short) color", group="Display")
+
+alert_on_sweep = input.bool(true, "Create alert on sweep", group="Alerts")
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TIME (America/New_York)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+h = hour(time, "America/New_York")
+m = minute(time, "America/New_York")
+hhmm = h * 100 + m
+
+in_ny        = (hhmm >= 800 and hhmm < 1100)
+in_london    = (h >= 3 and h < 6)
+in_fix       = (hhmm >= 945 and hhmm <= 1015)
+in_afternoon = (hhmm >= 1400 and hhmm < 1600)
+
+key_time = (session_ny and in_ny) or (session_london and in_london) or (session_fix and in_fix) or (session_afternoon and in_afternoon)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// LIQUIDITY LEVELS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+resistance_roll = ta.highest(high, lookback)
+support_roll    = ta.lowest(low, lookback)
+
+var float session_high = na
+var float session_low  = na
+new_day = ta.change(time("D")) != 0
+if new_day
+    session_high := high
+    session_low  := low
+else
+    session_high := math.max(nz(session_high), high)
+    session_low  := math.min(nz(session_low), low)
+
+in_8am = (hhmm >= 800)
+new_8am = in_8am and not in_8am[1]
+var float orb_high = na
+var float orb_low  = na
+var int orb_done   = 0
+if new_8am
+    orb_high := high
+    orb_low  := low
+    orb_done := 1
+else if in_8am and orb_done < 1
+    orb_high := math.max(nz(orb_high), high)
+    orb_low  := math.min(nz(orb_low), low)
+    orb_done := 1
+
+resistance = level_source == "Rolling" ? resistance_roll : (level_source == "Session" ? session_high : orb_high)
+support    = level_source == "Rolling" ? support_roll   : (level_source == "Session" ? session_low  : orb_low)
+
+res_prev = resistance[1]
+sup_prev = support[1]
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SWEEP DETECTION
+// ═══════════════════════════════════════════════════════════════════════════════
+
+atr_val  = ta.atr(14)
+min_wick = atr_val * (min_wick_atr_pct / 100.0)
+
+wick_above = high > res_prev and (high - res_prev) >= min_wick
+close_back_below = close < res_prev
+sweep_high = wick_above and (not sweep_close_inside or close_back_below)
+
+wick_below = low < sup_prev and (sup_prev - low) >= min_wick
+close_back_above = close > sup_prev
+sweep_low = wick_below and (not sweep_close_inside or close_back_above)
+
+vol_ma = ta.sma(volume, vol_len)
+vol_ok = not use_vol_filter or volume >= vol_ma
+
+detect_long  = sweep_low and vol_ok and not na(sup_prev)
+detect_short = sweep_high and vol_ok and not na(res_prev)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PLOTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+if show_levels
+    plot(resistance, "Resistance", color=res_color, linewidth=2)
+    plot(support, "Support", color=sup_color, linewidth=2)
+
+// Key time background
+bg_color = key_time and show_key_times ? color.new(color.blue, 100 - key_time_alpha) : na
+bgcolor(bg_color)
+
+// Sweep labels
+if show_sweep_labels and detect_long
+    label.new(bar_index, low, "SWEEP LOW\nBANK MOVE LONG", style=label.style_label_up, color=sweep_long_color, textcolor=color.white, size=label_size == "tiny" ? size.tiny : (label_size == "small" ? size.small : size.normal))
+if show_sweep_labels and detect_short
+    label.new(bar_index, high, "SWEEP HIGH\nBANK MOVE SHORT", style=label.style_label_down, color=sweep_short_color, textcolor=color.white, size=label_size == "tiny" ? size.tiny : (label_size == "small" ? size.small : size.normal))
+
+// Small badge on key-time bars (optional)
+if show_bank_move_badge and key_time and (detect_long or detect_short)
+    label.new(bar_index, high, "BANK MOVE", style=label.style_label_lower_right, color=color.orange, textcolor=color.white, size=size.tiny)
+
+// Arrows for quick scan
+plotshape(detect_long, "Sweep low", shape.triangleup, location.belowbar, sweep_long_color, size=size.small)
+plotshape(detect_short, "Sweep high", shape.triangledown, location.abovebar, sweep_short_color, size=size.small)
+
+// Alerts
+alertcondition(detect_long, "Bank Move Detector", "Sweep low / BANK MOVE LONG")
+alertcondition(detect_short, "Bank Move Detector", "Sweep high / BANK MOVE SHORT")

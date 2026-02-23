@@ -1,0 +1,48 @@
+═══════════════════════════════════════════════════════════════════════════════
+ADD SHADED SUPPORT & RESISTANCE ZONES (volume-based rejection areas)
+═══════════════════════════════════════════════════════════════════════════════
+Add these to your Volume_Math_Indicator.pine in the places shown below.
+
+-------------------------------------------------------------------------------
+STEP 1 — Add these INPUTS in the "Volume Zones" group (after vp_va_color):
+-------------------------------------------------------------------------------
+
+show_support_zone   = input.bool(true,  "Show Support Zone (shaded below VAL)", group="Volume Zones")
+show_resistance_zone = input.bool(true,  "Show Resistance Zone (shaded above VAH)", group="Volume Zones")
+zone_ext_pct        = input.float(15,   "Zone Extension % (of value area height)", minval=5, maxval=50, step=5, group="Volume Zones")
+support_zone_color  = input.color(color.new(color.green, 88), "Support Zone Fill", group="Volume Zones")
+resistance_zone_color = input.color(color.new(color.red, 88), "Resistance Zone Fill", group="Volume Zones")
+
+-------------------------------------------------------------------------------
+STEP 2 — Add these LINES after "val_price = min_p + _va_lo * bin_sz" (after the value area block):
+-------------------------------------------------------------------------------
+
+va_height = vah_price - val_price
+support_zone_bottom = val_price - va_height * (zone_ext_pct / 100.0)
+resistance_zone_top = vah_price + va_height * (zone_ext_pct / 100.0)
+
+-------------------------------------------------------------------------------
+STEP 3 — Add these PLOTS after the existing "Value Area Fill" (after fill(p_vah_fill, p_val_fill, ...)):
+-------------------------------------------------------------------------------
+
+// Shaded support zone (below VAL — price may reject up from here)
+sup_lo_series = use_vp and show_support_zone ? support_zone_bottom : na
+sup_hi_series = use_vp and show_support_zone ? val_price : na
+p_sup_lo = plot(sup_lo_series, display=display.none)
+p_sup_hi = plot(sup_hi_series, display=display.none)
+fill(p_sup_lo, p_sup_hi, color=support_zone_color, title="Support Zone")
+
+// Shaded resistance zone (above VAH — price may reject down from here)
+res_lo_series = use_vp and show_resistance_zone ? vah_price : na
+res_hi_series = use_vp and show_resistance_zone ? resistance_zone_top : na
+p_res_lo = plot(res_lo_series, display=display.none)
+p_res_hi = plot(res_hi_series, display=display.none)
+fill(p_res_lo, p_res_hi, color=resistance_zone_color, title="Resistance Zone")
+
+═══════════════════════════════════════════════════════════════════════════════
+WHAT YOU'LL SEE
+═══════════════════════════════════════════════════════════════════════════════
+• Support zone: a shaded band BELOW the red VAL line (support — price may bounce up).
+• Resistance zone: a shaded band ABOVE the green VAH line (resistance — price may reject down).
+• Zone Extension %: how far the band extends (e.g. 15% of the value area height).
+• Turn on/off in Settings → Volume Zones → "Show Support Zone" / "Show Resistance Zone".

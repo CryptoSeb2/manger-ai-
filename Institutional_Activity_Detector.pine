@@ -1,0 +1,263 @@
+//@version=6
+// Institutional Activity Detector — best-effort detection of what big banks/institutions
+// are doing: liquidity sweeps, volume pressure, VWAP behavior, key times, range expansion,
+// absorption. Uses every practical proxy available in Pine (no order flow data).
+
+indicator("Institutional Activity Detector", shorttitle="InstDetect", overlay=true, max_lines_count=50, max_labels_count=300, max_boxes_count=50, max_polylines_count=20)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INPUTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ——— Levels ———
+level_source = input.string("Rolling", "Liquidity level source", options=["Rolling", "Session", "ORB (8am)"], group="Levels")
+lookback     = input.int(20, "Rolling lookback (bars)", minval=5, group="Levels")
+
+// ——— 1) Liquidity sweeps (stop hunts) ———
+use_sweeps   = input.bool(true, "Detect liquidity sweeps", group="Sweeps")
+sweep_close_inside = input.bool(true, "Require close back inside", group="Sweeps")
+min_wick_atr_pct   = input.float(15, "Min wick beyond level (% ATR)", minval=0, maxval=100, step=5, group="Sweeps")
+
+// ——— 2) Volume & buy/sell pressure ———
+use_volume_pressure = input.bool(true, "Detect volume surge + buy/sell pressure", group="Volume")
+vol_len      = input.int(20, "Volume MA length", minval=1, group="Volume")
+vol_surge_mult = input.float(1.8, "Volume surge = volume ≥ MA × this", minval=1.0, step=0.2, group="Volume")
+pressure_len = input.int(14, "Pressure lookback (for extreme bar)", minval=5, group="Volume")
+
+// ——— 3) VWAP (institutions trade around it) ———
+use_vwap    = input.bool(true, "Show VWAP + deviation", group="VWAP")
+vwap_dev_atr = input.float(1.0, "VWAP deviation bands (ATR mult)", minval=0.5, step=0.25, group="VWAP")
+use_vwap_revert = input.bool(true, "Signal: return to VWAP from extended", group="VWAP")
+vwap_ext_atr = input.float(1.5, "Extended = beyond VWAP ± this ATR", minval=0.5, step=0.25, group="VWAP")
+
+// ——— 4) Key session times ———
+show_key_times = input.bool(true, "Highlight key session times", group="Times")
+session_ny     = input.bool(true, "NY (8:00–11:00 AM ET)", group="Times")
+session_london = input.bool(true, "London (3:00–6:00 AM ET)", group="Times")
+session_fix    = input.bool(true, "10 AM fix (9:45–10:15 ET)", group="Times")
+session_afternoon = input.bool(false, "Afternoon NY (2:00–4:00 PM ET)", group="Times")
+key_time_alpha = input.int(88, "Key time bg opacity %", minval=50, maxval=95, group="Times")
+label_session_open = input.bool(true, "Label session opens (NY, London, Fix)", group="Times")
+
+// ——— 5) Range expansion (big move = possible institutional) ———
+use_range_exp = input.bool(true, "Detect range expansion (big bar)", group="Range")
+range_atr_mult = input.float(2.0, "Expansion = range ≥ ATR × this", minval=1.2, step=0.2, group="Range")
+
+// ——— 6) Absorption (high vol + narrow range) ———
+use_absorption = input.bool(true, "Detect absorption (high vol, small range)", group="Absorption")
+absorb_range_atr = input.float(0.5, "Narrow range = range ≤ ATR × this", minval=0.2, step=0.1, group="Absorption")
+absorb_vol_mult = input.float(1.5, "High volume = volume ≥ MA × this", minval=1.0, step=0.2, group="Absorption")
+
+// ——— 7) Composite "Banks Active" ———
+use_composite = input.bool(true, "Composite: BANKS ACTIVE when 2+ signals align", group="Composite")
+min_signals   = input.int(2, "Min signals to show BANKS ACTIVE", minval=2, maxval=5, group="Composite")
+
+// ——— Display ———
+show_levels  = input.bool(true, "Show liquidity levels", group="Display")
+show_sweep_labels = input.bool(true, "Sweep labels (LONG/SHORT)", group="Display")
+show_vwap_bands  = input.bool(true, "VWAP ± deviation bands", group="Display")
+label_size   = input.string("small", "Label size", options=["tiny", "small", "normal"], group="Display")
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TIME (America/New_York)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+h = hour(time, "America/New_York")
+m = minute(time, "America/New_York")
+hhmm = h * 100 + m
+
+in_ny        = (hhmm >= 800 and hhmm < 1100)
+in_london    = (h >= 3 and h < 6)
+in_fix       = (hhmm >= 945 and hhmm <= 1015)
+in_afternoon = (hhmm >= 1400 and hhmm < 1600)
+
+key_time = (session_ny and in_ny) or (session_london and in_london) or (session_fix and in_fix) or (session_afternoon and in_afternoon)
+
+// Session open labels (first bar of each)
+new_ny = in_ny and not in_ny[1]
+new_london = in_london and not in_london[1]
+new_fix = (hhmm >= 945 and hhmm <= 1015) and (hhmm[1] < 945 or hhmm[1] > 1015)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// LIQUIDITY LEVELS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+resistance_roll = ta.highest(high, lookback)
+support_roll    = ta.lowest(low, lookback)
+
+var float session_high = na
+var float session_low  = na
+new_day = ta.change(time("D")) != 0
+if new_day
+    session_high := high
+    session_low  := low
+else
+    session_high := math.max(nz(session_high), high)
+    session_low  := math.min(nz(session_low), low)
+
+in_8am = (hhmm >= 800)
+new_8am = in_8am and not in_8am[1]
+var float orb_high = na
+var float orb_low  = na
+var int orb_done   = 0
+if new_8am
+    orb_high := high
+    orb_low  := low
+    orb_done := 1
+else if in_8am and orb_done < 1
+    orb_high := math.max(nz(orb_high), high)
+    orb_low  := math.min(nz(orb_low), low)
+    orb_done := 1
+
+resistance = level_source == "Rolling" ? resistance_roll : (level_source == "Session" ? session_high : orb_high)
+support    = level_source == "Rolling" ? support_roll   : (level_source == "Session" ? session_low  : orb_low)
+res_prev   = resistance[1]
+sup_prev   = support[1]
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ATR & VOLUME
+// ═══════════════════════════════════════════════════════════════════════════════
+
+atr_val = ta.atr(14)
+vol_ma  = ta.sma(volume, vol_len)
+bar_range = high - low
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 1) LIQUIDITY SWEEPS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+min_wick = atr_val * (min_wick_atr_pct / 100.0)
+wick_above = high > res_prev and (high - res_prev) >= min_wick
+close_back_below = close < res_prev
+sweep_high = use_sweeps and wick_above and (not sweep_close_inside or close_back_below) and not na(res_prev)
+
+wick_below = low < sup_prev and (sup_prev - low) >= min_wick
+close_back_above = close > sup_prev
+sweep_low = use_sweeps and wick_below and (not sweep_close_inside or close_back_above) and not na(sup_prev)
+
+vol_ok = volume >= vol_ma
+detect_sweep_long  = sweep_low and vol_ok
+detect_sweep_short = sweep_high and vol_ok
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 2) VOLUME SURGE + BUY/SELL PRESSURE
+// ═══════════════════════════════════════════════════════════════════════════════
+
+vol_surge = use_volume_pressure and volume >= vol_ma * vol_surge_mult
+
+// Approximate delta: buy pressure when close > open, sell when close < open. Weight by volume.
+buy_vol  = close > open ? volume : 0.0
+sell_vol = close < open ? volume : 0.0
+pressure_bar = (close - open) * volume  // positive = buying, negative = selling
+pressure_ma  = ta.sma(math.abs(pressure_bar), pressure_len)
+extreme_buy  = use_volume_pressure and vol_surge and pressure_bar > 0 and pressure_bar >= pressure_ma * 1.5
+extreme_sell = use_volume_pressure and vol_surge and pressure_bar < 0 and math.abs(pressure_bar) >= pressure_ma * 1.5
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 3) VWAP + DEVIATION + RETURN TO VWAP
+// ═══════════════════════════════════════════════════════════════════════════════
+
+var float cum_vol = 0.0
+var float cum_vol_v = 0.0
+if new_day
+    cum_vol   := volume
+    cum_vol_v := volume * (high + low + close) / 3.0
+else
+    cum_vol   += volume
+    cum_vol_v += volume * (high + low + close) / 3.0
+vwap_val = cum_vol > 0 ? cum_vol_v / cum_vol : close
+
+vwap_upper = vwap_val + atr_val * vwap_dev_atr
+vwap_lower = vwap_val - atr_val * vwap_dev_atr
+
+// Was extended (above/below VWAP ± vwap_ext_atr), now back inside deviation
+ext_above = close[1] > vwap_val[1] + atr_val[1] * vwap_ext_atr
+ext_below = close[1] < vwap_val[1] - atr_val[1] * vwap_ext_atr
+back_to_vwap_long  = use_vwap and use_vwap_revert and ext_below and close >= vwap_lower and close <= vwap_upper
+back_to_vwap_short = use_vwap and use_vwap_revert and ext_above and close >= vwap_lower and close <= vwap_upper
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 4) RANGE EXPANSION
+// ═══════════════════════════════════════════════════════════════════════════════
+
+range_expansion = use_range_exp and bar_range >= atr_val * range_atr_mult and vol_ok
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 5) ABSORPTION (high volume, narrow range)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+narrow_range = bar_range <= atr_val * absorb_range_atr
+high_vol     = volume >= vol_ma * absorb_vol_mult
+absorption   = use_absorption and narrow_range and high_vol and atr_val > 0
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 6) COMPOSITE — count signals this bar
+// ═══════════════════════════════════════════════════════════════════════════════
+
+signal_count = (detect_sweep_long or detect_sweep_short ? 1 : 0) +
+     (extreme_buy or extreme_sell ? 1 : 0) +
+     (back_to_vwap_long or back_to_vwap_short ? 1 : 0) +
+     (range_expansion ? 1 : 0) +
+     (absorption ? 1 : 0)
+composite_active = use_composite and key_time and signal_count >= min_signals
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PLOTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+sz = label_size == "tiny" ? size.tiny : (label_size == "small" ? size.small : size.normal)
+
+// All plot/plotshape/bgcolor/alertcondition at global scope (before any if)
+plot(show_levels ? resistance : na, "Resistance", color=color.red, linewidth=2)
+plot(show_levels ? support : na, "Support", color=color.green, linewidth=2)
+plot(use_vwap ? vwap_val : na, "VWAP", color=color.yellow, linewidth=2)
+plot(use_vwap and show_vwap_bands ? vwap_upper : na, "VWAP +", color=color.new(color.yellow, 60), linewidth=1)
+plot(use_vwap and show_vwap_bands ? vwap_lower : na, "VWAP -", color=color.new(color.yellow, 60), linewidth=1)
+bg_color = key_time and show_key_times ? color.new(color.purple, 100 - key_time_alpha) : na
+bgcolor(bg_color)
+plotshape(detect_sweep_long, "Sweep long", shape.triangleup, location.belowbar, color.green, size=size.small)
+plotshape(detect_sweep_short, "Sweep short", shape.triangledown, location.abovebar, color.red, size=size.small)
+plotshape(composite_active, "Banks active", shape.diamond, location.abovebar, color.purple, size=size.tiny)
+alertcondition(detect_sweep_long, "Sweep Low", "Institutional: Sweep low / LONG")
+alertcondition(detect_sweep_short, "Sweep High", "Institutional: Sweep high / SHORT")
+alertcondition(composite_active, "Banks Active", "Institutional: BANKS ACTIVE (multiple signals)")
+alertcondition(extreme_buy, "Buy Pressure", "Institutional: Extreme buy pressure")
+alertcondition(extreme_sell, "Sell Pressure", "Institutional: Extreme sell pressure")
+
+// Session open labels
+if label_session_open and new_ny
+    label.new(bar_index, high, "NY\nOPEN", style=label.style_label_down, color=color.blue, textcolor=color.white, size=size.tiny)
+if label_session_open and new_london
+    label.new(bar_index, high, "LONDON", style=label.style_label_down, color=color.orange, textcolor=color.white, size=size.tiny)
+if label_session_open and new_fix
+    label.new(bar_index, high, "10AM FIX", style=label.style_label_down, color=color.purple, textcolor=color.white, size=size.tiny)
+
+// 1) Sweep labels
+if show_sweep_labels and detect_sweep_long
+    label.new(bar_index, low, "SWEEP LOW\nLONG", style=label.style_label_up, color=color.green, textcolor=color.white, size=sz)
+if show_sweep_labels and detect_sweep_short
+    label.new(bar_index, high, "SWEEP HIGH\nSHORT", style=label.style_label_down, color=color.red, textcolor=color.white, size=sz)
+
+// 2) Volume pressure
+if extreme_buy
+    label.new(bar_index, low, "BUY PRESSURE", style=label.style_label_up, color=color.teal, textcolor=color.white, size=size.tiny)
+if extreme_sell
+    label.new(bar_index, high, "SELL PRESSURE", style=label.style_label_down, color=color.maroon, textcolor=color.white, size=size.tiny)
+
+// 3) Return to VWAP
+if back_to_vwap_long
+    label.new(bar_index, low, "VWAP REVERT\nLONG", style=label.style_label_up, color=color.new(color.lime, 20), textcolor=color.white, size=size.tiny)
+if back_to_vwap_short
+    label.new(bar_index, high, "VWAP REVERT\nSHORT", style=label.style_label_down, color=color.new(color.fuchsia, 20), textcolor=color.white, size=size.tiny)
+
+// 4) Range expansion
+if range_expansion
+    label.new(bar_index, high, "RANGE EXP", style=label.style_label_down, color=color.orange, textcolor=color.white, size=size.tiny)
+
+// 5) Absorption
+if absorption
+    label.new(bar_index, high, "ABSORPTION", style=label.style_label_down, color=color.gray, textcolor=color.white, size=size.tiny)
+
+// 6) Composite
+if composite_active
+    label.new(bar_index, high, "BANKS ACTIVE\n(" + str.tostring(signal_count) + ")", style=label.style_label_down, color=color.purple, textcolor=color.white, size=sz)

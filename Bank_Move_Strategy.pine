@@ -1,0 +1,173 @@
+//@version=6
+// Bank Move Strategy: Detects when "smart money" moves the market — liquidity sweeps
+// (stop hunts) at key times, then signals the reversal. Backtestable.
+// Concept: Institutions sweep retail stops above/below key levels, then price reverses.
+
+strategy("Bank Move Strategy", shorttitle="Bank Move", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=10, initial_capital=10000, commission_value=0.04, commission_type=strategy.commission.percent)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INPUTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Liquidity levels (where "stops" sit — banks sweep these)
+level_source = input.string("Rolling", "Liquidity level source", options=["Rolling", "Session", "ORB (8am)"], group="Levels")
+lookback     = input.int(20, "Rolling lookback (bars) for high/low", minval=5, group="Levels")
+use_session  = input.bool(false, "Session = today's high/low (if Session selected)", group="Levels")
+
+// Sweep definition: how far beyond level then close back
+sweep_wick_ticks = input.float(0, "Min wick beyond level (0 = any break)", minval=0, step=0.5, group="Sweep", tooltip="0 = use ATR. Or set min ticks the wick must go past the level.")
+sweep_close_inside = input.bool(true, "Require close back inside range (rejection)", group="Sweep")
+sweep_bearish_candle = input.bool(false, "LONG only on bullish candle; SHORT only on bearish", group="Sweep")
+
+// Key times (when banks often move: London, NY open, fix)
+use_time_filter = input.bool(true, "Only signal during key session times", group="Times")
+session_ny     = input.bool(true, "NY session (8:00–11:00 AM Eastern)", group="Times")
+session_london = input.bool(false, "London session (3:00–6:00 AM Eastern)", group="Times")
+session_fix    = input.bool(false, "Around 10:00 AM fix (9:45–10:15 Eastern)", group="Times")
+session_afternoon = input.bool(false, "Afternoon NY (2:00–4:00 PM Eastern)", group="Times")
+
+// Filters
+use_vol_filter = input.bool(true, "Require volume > MA(volume)", group="Filters")
+vol_len       = input.int(20, "Volume MA length", minval=1, group="Filters")
+use_atr_filter = input.bool(true, "Require ATR above average (avoid dead markets)", group="Filters")
+atr_len       = input.int(14, "ATR length", minval=1, group="Filters")
+atr_min_mult  = input.float(0.7, "ATR >= MA(ATR) × this", minval=0.3, step=0.1, group="Filters")
+
+// Risk
+stop_beyond_wick = input.bool(true, "Stop beyond sweep wick (else ATR)", group="Risk")
+atr_stop_mult   = input.float(1.5, "ATR stop multiplier (if not beyond wick)", minval=0.5, step=0.5, group="Risk")
+target_r        = input.float(2.0, "Target (R multiple)", minval=0.5, step=0.5, group="Risk")
+max_signals_per_day = input.int(2, "Max LONG + SHORT signals per day", minval=1, maxval=10, group="Risk")
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TIME (America/New_York)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+h = hour(time, "America/New_York")
+m = minute(time, "America/New_York")
+hhmm = h * 100 + m
+
+in_ny       = (hhmm >= 800 and hhmm < 1100)
+in_london   = (h >= 3 and h < 6)
+in_fix      = (hhmm >= 945 and hhmm <= 1015)
+in_afternoon = (hhmm >= 1400 and hhmm < 1600)
+
+key_time_ok = not use_time_filter or (session_ny and in_ny) or (session_london and in_london) or (session_fix and in_fix) or (session_afternoon and in_afternoon)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// LIQUIDITY LEVELS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Rolling
+resistance_roll = ta.highest(high, lookback)
+support_roll   = ta.lowest(low, lookback)
+
+// Session (today)
+var float session_high = na
+var float session_low  = na
+new_day = ta.change(time("D")) != 0
+if new_day
+    session_high := high
+    session_low  := low
+else
+    session_high := math.max(nz(session_high), high)
+    session_low  := math.min(nz(session_low), low)
+
+// ORB 8:00–8:15
+in_8am = (hhmm >= 800)
+new_8am = in_8am and not in_8am[1]
+var float orb_high = na
+var float orb_low  = na
+var int orb_done   = 0
+if new_8am
+    orb_high := high
+    orb_low  := low
+    orb_done := 1
+else if in_8am and orb_done < 1
+    orb_high := math.max(nz(orb_high), high)
+    orb_low  := math.min(nz(orb_low), low)
+    orb_done := 1
+
+resistance = level_source == "Rolling" ? resistance_roll : (level_source == "Session" ? session_high : orb_high)
+support    = level_source == "Rolling" ? support_roll   : (level_source == "Session" ? session_low  : orb_low)
+
+// Use prior bar's level so we "sweep" then close back
+res_prev = resistance[1]
+sup_prev = support[1]
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SWEEP DETECTION (liquidity grab then rejection)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+atr_val   = ta.atr(atr_len)
+atr_ma    = ta.sma(atr_val, atr_len)
+min_wick  = sweep_wick_ticks > 0 ? syminfo.mintick * sweep_wick_ticks : atr_val * 0.2
+
+// Sweep high: wick above resistance then close back below (sell-side liquidity grab → SHORT)
+wick_above = high > res_prev and (high - res_prev) >= min_wick
+close_back_below = close < res_prev
+bearish_candle = close < open
+sweep_high = wick_above and (not sweep_close_inside or close_back_below) and (not sweep_bearish_candle or bearish_candle)
+
+// Sweep low: wick below support then close back above (buy-side liquidity grab → LONG)
+wick_below = low < sup_prev and (sup_prev - low) >= min_wick
+close_back_above = close > sup_prev
+bullish_candle = close > open
+sweep_low = wick_below and (not sweep_close_inside or close_back_above) and (not sweep_bearish_candle or bullish_candle)
+
+// Filters
+vol_ma = ta.sma(volume, vol_len)
+vol_ok = not use_vol_filter or volume >= vol_ma
+atr_ok = not use_atr_filter or atr_val >= atr_ma * atr_min_mult
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SIGNALS & RATE LIMIT
+// ═══════════════════════════════════════════════════════════════════════════════
+
+sig_long  = key_time_ok and sweep_low and vol_ok and atr_ok and not na(sup_prev)
+sig_short = key_time_ok and sweep_high and vol_ok and atr_ok and not na(res_prev)
+
+var int long_count_today = 0
+var int short_count_today = 0
+if new_day
+    long_count_today := 0
+    short_count_today := 0
+
+entry_long  = sig_long and long_count_today < max_signals_per_day
+entry_short = sig_short and short_count_today < max_signals_per_day
+if entry_long
+    long_count_today += 1
+if entry_short
+    short_count_today += 1
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// STOPS & TARGETS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Long: stop below sweep low, target = entry + R * (entry - stop)
+stop_long  = stop_beyond_wick ? low : close - atr_val * atr_stop_mult
+stop_short = stop_beyond_wick ? high : close + atr_val * atr_stop_mult
+r_long     = close - stop_long
+r_short   = stop_short - close
+target_long  = close + r_long * target_r
+target_short = close - r_short * target_r
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// EXECUTE
+// ═══════════════════════════════════════════════════════════════════════════════
+
+if entry_long
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Long Exit", "Long", stop=stop_long, limit=target_long)
+if entry_short
+    strategy.entry("Short", strategy.short)
+    strategy.exit("Short Exit", "Short", stop=stop_short, limit=target_short)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PLOTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+plot(resistance, "Resistance (liquidity)", color=color.red, linewidth=2)
+plot(support, "Support (liquidity)", color=color.green, linewidth=2)
+plotshape(entry_long, "Long (sweep low)", shape.triangleup, location.belowbar, color.green, size=size.small)
+plotshape(entry_short, "Short (sweep high)", shape.triangledown, location.abovebar, color.red, size=size.small)

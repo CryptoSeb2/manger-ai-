@@ -1,0 +1,147 @@
+//@version=6
+// High Win Rate Mean Reversion — only signals in RANGE, at S/R, with volume
+
+indicator("High Win Rate Mean Reversion", shorttitle="HWR MR", overlay=true, max_lines_count=50, max_labels_count=100, max_boxes_count=50)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INPUTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Range / S/R
+sr_len       = input.int(20,   "Support/Resistance Lookback (bars)", minval=5, group="Levels")
+near_pct     = input.float(15,  "Near S/R = within % of range", minval=5, maxval=40, step=5, group="Levels")
+use_range_third = input.bool(true, "LONG only in lower 1/3 of range, SHORT only in upper 1/3", group="Levels")
+
+// RSI
+rsi_len      = input.int(14,   "RSI Length", minval=2, group="RSI")
+rsi_os       = input.int(30,   "RSI Oversold (buy zone)", minval=10, maxval=40, group="RSI")
+rsi_ob       = input.int(70,   "RSI Overbought (sell zone)", minval=60, maxval=90, group="RSI")
+
+// Range filter (no signals in strong trend)
+adx_len      = input.int(14,   "ADX Length", minval=2, group="Range Filter")
+adx_max      = input.int(25,   "ADX Max (range = below this)", minval=15, maxval=40, group="Range Filter")
+
+// Volume
+vol_len      = input.int(20,   "Volume MA Length", minval=1, group="Volume")
+vol_mult     = input.float(1.0, "Volume ≥ MA × this", minval=0.5, step=0.1, group="Volume")
+require_vol  = input.bool(true, "Require volume confirmation", group="Volume")
+
+// Risk
+min_bars     = input.int(5,    "Min bars between signals", minval=0, group="Risk")
+atr_stop_mult = input.float(1.5, "ATR multiplier for stop (reference)", minval=0.5, step=0.5, group="Risk")
+atr_len      = input.int(14,   "ATR Length", minval=1, group="Risk")
+
+// Display
+show_levels   = input.bool(true, "Show Support / Resistance lines", group="Display")
+show_zones    = input.bool(true, "Show Support / Resistance zone rectangles", group="Display")
+zone_ext_atr  = input.float(0.5, "Zone width (ATR multiplier each side of line)", minval=0.2, step=0.1, group="Display")
+support_fill  = input.color(color.new(color.green, 85), "Support zone fill", group="Display")
+resistance_fill = input.color(color.new(color.red, 85), "Resistance zone fill", group="Display")
+show_arrows   = input.bool(true, "Show arrows and labels", group="Display")
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// LEVELS: Rolling support & resistance
+// ═══════════════════════════════════════════════════════════════════════════════
+
+resistance_line = ta.highest(high, sr_len)
+support_line   = ta.lowest(low, sr_len)
+range_size     = resistance_line - support_line
+atr_val        = ta.atr(atr_len)
+
+// "Near" support = within X% of range from support, or within 0.5 ATR
+near_support    = range_size > 0 and (close <= support_line + range_size * (near_pct / 100.0)) or (low <= support_line + atr_val * 0.5)
+near_resistance = range_size > 0 and (close >= resistance_line - range_size * (near_pct / 100.0)) or (high >= resistance_line - atr_val * 0.5)
+
+lower_third = range_size > 0 and close <= support_line + range_size / 3.0
+upper_third = range_size > 0 and close >= resistance_line - range_size / 3.0
+
+in_range_for_long  = near_support and (not use_range_third or lower_third)
+in_range_for_short = near_resistance and (not use_range_third or upper_third)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// RSI + ADX + VOLUME
+// ═══════════════════════════════════════════════════════════════════════════════
+
+rsi_val = ta.rsi(close, rsi_len)
+[di_plus, di_minus, adx_val] = ta.dmi(adx_len, adx_len)
+in_range_market = adx_val < adx_max
+
+vol_ma = ta.sma(volume, vol_len)
+volume_ok = not require_vol or volume >= vol_ma * vol_mult
+
+// Reversal: RSI crosses back out of oversold/overbought
+rsi_cross_up   = ta.crossover(rsi_val, rsi_os)
+rsi_cross_down = ta.crossunder(rsi_val, rsi_ob)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SIGNALS (only in range, at S/R, with volume)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+var int last_signal_bar = -100
+bars_ok = bar_index - last_signal_bar >= min_bars
+
+long_signal  = rsi_cross_up and in_range_for_long and in_range_market and volume_ok and bars_ok
+short_signal = rsi_cross_down and in_range_for_short and in_range_market and volume_ok and bars_ok
+
+if long_signal or short_signal
+    last_signal_bar := bar_index
+
+// Zone bounds (band around each line)
+support_zone_top    = support_line + atr_val * zone_ext_atr
+support_zone_bottom = support_line - atr_val * zone_ext_atr
+resistance_zone_top = resistance_line + atr_val * zone_ext_atr
+resistance_zone_bot = resistance_line - atr_val * zone_ext_atr
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PLOTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+plot(show_levels ? support_line : na,   "Support",   color=color.green,  linewidth=2)
+plot(show_levels ? resistance_line : na, "Resistance", color=color.red,    linewidth=2)
+
+// Support and Resistance ZONES (rectangles)
+left_sr  = bar_index - sr_len
+right_sr = bar_index
+var box _box_support = na
+var box _box_resistance = na
+if show_zones
+    if na(_box_support)
+        _box_support := box.new(left_sr, support_zone_top, right_sr, support_zone_bottom, border_color=color.new(color.green, 60), border_width=1, bgcolor=support_fill)
+    else
+        box.set_left(_box_support, left_sr)
+        box.set_right(_box_support, right_sr)
+        box.set_top(_box_support, support_zone_top)
+        box.set_bottom(_box_support, support_zone_bottom)
+        box.set_bgcolor(_box_support, support_fill)
+else if not na(_box_support)
+    box.delete(_box_support)
+    _box_support := na
+if show_zones
+    if na(_box_resistance)
+        _box_resistance := box.new(left_sr, resistance_zone_top, right_sr, resistance_zone_bot, border_color=color.new(color.red, 60), border_width=1, bgcolor=resistance_fill)
+    else
+        box.set_left(_box_resistance, left_sr)
+        box.set_right(_box_resistance, right_sr)
+        box.set_top(_box_resistance, resistance_zone_top)
+        box.set_bottom(_box_resistance, resistance_zone_bot)
+        box.set_bgcolor(_box_resistance, resistance_fill)
+else if not na(_box_resistance)
+    box.delete(_box_resistance)
+    _box_resistance := na
+
+plotshape(show_arrows and long_signal,  style=shape.triangleup,   location=location.belowbar, color=color.green, size=size.normal)
+plotshape(show_arrows and short_signal, style=shape.triangledown, location=location.abovebar, color=color.red,   size=size.normal)
+
+if show_arrows and long_signal
+    label.new(bar_index, low, "LONG\n(mean reversion)", style=label.style_label_up, color=color.green, textcolor=color.white, size=size.small)
+if show_arrows and short_signal
+    label.new(bar_index, high, "SHORT\n(mean reversion)", style=label.style_label_down, color=color.red, textcolor=color.white, size=size.small)
+
+// Reference: suggested stop distance (for your trade plan)
+stop_dist_long  = atr_val * atr_stop_mult
+stop_dist_short = atr_val * atr_stop_mult
+plot(long_signal ? low - stop_dist_long : na, "Long stop ref", color=color.new(color.green, 70), linewidth=1)
+plot(short_signal ? high + stop_dist_short : na, "Short stop ref", color=color.new(color.red, 70), linewidth=1)
+
+alertcondition(long_signal,  title="HWR LONG",  message="High Win Rate Mean Reversion: LONG")
+alertcondition(short_signal, title="HWR SHORT", message="High Win Rate Mean Reversion: SHORT")

@@ -1,0 +1,14 @@
+# Deploy to Render.com for a permanent link (free tier).
+# After pushing this repo to GitHub: Render Dashboard → New → Web Service → connect repo → use this blueprint or set:
+#   Build: pip install -r requirements.txt
+#   Start: python -m manager_ai.app
+#   Root directory: (leave blank so repo root is used)
+services:
+  - type: web
+    name: manager-ai
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m manager_ai.app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0

@@ -1,0 +1,150 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Multi Volume Zones — Multiple HVN-based support & resistance rectangles
+
+//@version=6
+indicator("Multi Volume Zones", shorttitle="MultiVolZ", overlay=true, max_boxes_count=20)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INPUTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+lookbackBars   = input.int(300,  "Lookback (bars)",  minval=50, maxval=2000, group="Volume Zones")
+zones_count    = input.int(3,    "Number of zones (top N volume levels)", minval=1, maxval=3, group="Volume Zones")
+band_pct       = input.float(5,  "Zone height % of price range", minval=1, maxval=20, step=1, group="Volume Zones")
+
+use_atr_height = input.bool(false, "Use ATR for zone height instead", group="Zone Height")
+atr_len        = input.int(14,  "ATR Length", minval=1, group="Zone Height")
+atr_mult       = input.float(0.5, "ATR Multiplier", minval=0.1, maxval=5, step=0.1, group="Zone Height")
+
+zone_color_1   = input.color(color.new(color.green, 80), "Zone 1 Color", group="Colors")
+zone_color_2   = input.color(color.new(color.blue, 80),  "Zone 2 Color", group="Colors")
+zone_color_3   = input.color(color.new(color.red, 80),   "Zone 3 Color", group="Colors")
+border_color   = input.color(color.new(color.white, 60), "Zone Border Color", group="Colors")
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// HELPER: Find top 3 high‑volume price levels over lookback
+// ═══════════════════════════════════════════════════════════════════════════════
+
+f_top3_vol_levels(int lb) =>
+    float v1 = 0.0, v2 = 0.0, v3 = 0.0
+    float p1 = na
+    float p2 = na
+    float p3 = na
+    for i = 0 to lb - 1
+        float v = volume[i]
+        float price = (high[i] + low[i] + close[i]) / 3.0
+        if v > v1
+            v3 := v2
+            p3 := p2
+            v2 := v1
+            p2 := p1
+            v1 := v
+            p1 := price
+        else if v > v2
+            v3 := v2
+            p3 := p2
+            v2 := v
+            p2 := price
+        else if v > v3
+            v3 := v
+            p3 := price
+    [p1, p2, p3]
+
+// Guard against not enough history
+enough_history = bar_index > lookbackBars
+
+// Top 3 high‑volume price levels (persist across bars)
+var float top1 = na
+var float top2 = na
+var float top3 = na
+if enough_history
+    [_p1, _p2, _p3] = f_top3_vol_levels(lookbackBars)
+    top1 := _p1
+    top2 := _p2
+    top3 := _p3
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ZONE GEOMETRY
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Horizontal span for all zones
+left_edge  = bar_index - lookbackBars
+right_edge = bar_index
+
+// Vertical height for zones
+float pr_lo = ta.lowest(low, lookbackBars)
+float pr_hi = ta.highest(high, lookbackBars)
+float price_range = pr_hi - pr_lo
+float height_from_range = price_range * (band_pct / 100.0)
+float atr_val = ta.atr(atr_len)
+float height_from_atr = atr_val * atr_mult
+float zone_h = use_atr_height ? height_from_atr : height_from_range
+
+// For each top level, compute top & bottom of rectangle
+float t1_top = na
+float t1_bot = na
+float t2_top = na
+float t2_bot = na
+float t3_top = na
+float t3_bot = na
+
+if not na(top1)
+    t1_top := top1 + zone_h * 0.5
+    t1_bot := top1 - zone_h * 0.5
+if not na(top2)
+    t2_top := top2 + zone_h * 0.5
+    t2_bot := top2 - zone_h * 0.5
+if not na(top3)
+    t3_top := top3 + zone_h * 0.5
+    t3_bot := top3 - zone_h * 0.5
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DRAW BOXES (RECTANGLES) FOR MULTIPLE VOLUME ZONES
+// ═══════════════════════════════════════════════════════════════════════════════
+
+var box box1 = na
+var box box2 = na
+var box box3 = na
+
+// Zone 1 (strongest volume level)
+if enough_history and zones_count >= 1 and not na(top1)
+    if na(box1)
+        box1 := box.new(left_edge, t1_top, right_edge, t1_bot, border_color=border_color, border_width=1, bgcolor=zone_color_1)
+    else
+        box.set_left(box1, left_edge)
+        box.set_right(box1, right_edge)
+        box.set_top(box1, t1_top)
+        box.set_bottom(box1, t1_bot)
+        box.set_bgcolor(box1, zone_color_1)
+else if not na(box1)
+    box.delete(box1)
+    box1 := na
+
+// Zone 2
+if enough_history and zones_count >= 2 and not na(top2)
+    if na(box2)
+        box2 := box.new(left_edge, t2_top, right_edge, t2_bot, border_color=border_color, border_width=1, bgcolor=zone_color_2)
+    else
+        box.set_left(box2, left_edge)
+        box.set_right(box2, right_edge)
+        box.set_top(box2, t2_top)
+        box.set_bottom(box2, t2_bot)
+        box.set_bgcolor(box2, zone_color_2)
+else if not na(box2)
+    box.delete(box2)
+    box2 := na
+
+// Zone 3
+if enough_history and zones_count >= 3 and not na(top3)
+    if na(box3)
+        box3 := box.new(left_edge, t3_top, right_edge, t3_bot, border_color=border_color, border_width=1, bgcolor=zone_color_3)
+    else
+        box.set_left(box3, left_edge)
+        box.set_right(box3, right_edge)
+        box.set_top(box3, t3_top)
+        box.set_bottom(box3, t3_bot)
+        box.set_bgcolor(box3, zone_color_3)
+else if not na(box3)
+    box.delete(box3)
+    box3 := na
+

@@ -1,0 +1,170 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Volume-Based Support & Resistance Zones — Standalone Indicator
+
+//@version=6
+indicator("Volume Support & Resistance Zones", shorttitle="Vol S/R Z", overlay=true, max_lines_count=500, max_labels_count=10, max_boxes_count=10)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INPUTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+vp_lookback  = input.int(50,   "Profile Lookback (bars)", minval=10, group="Volume Profile")
+vp_bins      = input.int(50,    "Price Bins (resolution)", minval=20, maxval=100, group="Volume Profile")
+vp_value_pct = input.float(70,  "Value Area % (e.g. 70 = 70% of volume)", minval=50, maxval=90, step=5, group="Volume Profile")
+
+show_poc     = input.bool(true, "Show POC (Point of Control)", group="Lines")
+show_vah_val = input.bool(true, "Show VAH / VAL (Value Area High/Low)", group="Lines")
+show_va_rect = input.bool(true, "Show Value Area Rectangle", group="Lines")
+
+show_support_zone   = input.bool(true, "Show Support Zone Rectangle (below VAL)", group="Rejection Zones")
+show_resistance_zone = input.bool(true, "Show Resistance Zone Rectangle (above VAH)", group="Rejection Zones")
+zone_ext_pct        = input.float(15, "Zone Extension % (of value area height)", minval=5, maxval=50, step=5, group="Rejection Zones")
+
+show_zone_labels    = input.bool(true, "Show zone labels (where price may move with volume)", group="Labels")
+label_size          = input.string("small", "Label size", options=["tiny", "small", "normal"], group="Labels")
+
+poc_color   = input.color(color.yellow, "POC Color", group="Colors")
+vah_color   = input.color(color.green,  "VAH Color", group="Colors")
+val_color   = input.color(color.red,    "VAL Color", group="Colors")
+va_fill     = input.color(color.new(color.green, 90), "Value Area Rectangle Fill", group="Colors")
+support_fill = input.color(color.new(color.green, 88), "Support Zone Rectangle Fill", group="Colors")
+resistance_fill = input.color(color.new(color.red, 88), "Resistance Zone Rectangle Fill", group="Colors")
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// VOLUME PROFILE: POC + Value Area (VAH / VAL)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+var float[] _vp_vol = array.new_float(100)
+min_p   = ta.lowest(low, vp_lookback)
+max_p   = ta.highest(high, vp_lookback)
+_range  = max_p - min_p
+bin_sz  = _range > 0 ? _range / math.max(1, vp_bins) : syminfo.mintick
+
+array.fill(_vp_vol, 0.0)
+for i = 0 to vp_lookback - 1
+    typ_p = (high[i] + low[i] + close[i]) / 3.0
+    idx = math.max(0, math.min(vp_bins - 1, int(bin_sz > 0 ? math.floor((typ_p - min_p) / bin_sz) : 0)))
+    array.set(_vp_vol, idx, array.get(_vp_vol, idx) + volume[i])
+
+float _max_vol = array.max(_vp_vol)
+int _poc_bin = array.indexof(_vp_vol, _max_vol)
+poc_price = min_p + (_poc_bin + 0.5) * bin_sz
+
+f_sum_float_arr(float[] arr, int n) =>
+    var float s = 0.0
+    s := 0.0
+    for i = 0 to n - 1
+        s := s + array.get(arr, i)
+    s
+float _total_vol = f_sum_float_arr(_vp_vol, vp_bins)
+_target_vol = _total_vol * (vp_value_pct / 100.0)
+int _va_lo = _poc_bin
+int _va_hi = _poc_bin
+float _va_vol = array.get(_vp_vol, _poc_bin)
+while _va_vol < _target_vol and (_va_lo > 0 or _va_hi < vp_bins - 1)
+    float vol_above = _va_hi < vp_bins - 1 ? array.get(_vp_vol, _va_hi + 1) : 0.0
+    float vol_below = _va_lo > 0 ? array.get(_vp_vol, _va_lo - 1) : 0.0
+    if vol_above >= vol_below and _va_hi < vp_bins - 1
+        _va_hi += 1
+        _va_vol += array.get(_vp_vol, _va_hi)
+    else if _va_lo > 0
+        _va_lo -= 1
+        _va_vol += array.get(_vp_vol, _va_lo)
+    else
+        break
+vah_price = min_p + (_va_hi + 1) * bin_sz
+val_price = min_p + _va_lo * bin_sz
+
+// Support & resistance zone bounds (extend by % of value area height)
+va_height = vah_price - val_price
+support_zone_bottom = val_price - va_height * (zone_ext_pct / 100.0)
+resistance_zone_top = vah_price + va_height * (zone_ext_pct / 100.0)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PLOTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+plot(show_poc ? poc_price : na, "POC (Point of Control)", color=poc_color, linewidth=2)
+plot(show_vah_val ? vah_price : na, "VAH (Value Area High)", color=vah_color, linewidth=1)
+plot(show_vah_val ? val_price : na, "VAL (Value Area Low)", color=val_color, linewidth=1)
+
+// Rectangles (boxes) for value area, support zone, resistance zone
+left_edge  = bar_index - vp_lookback
+right_edge = bar_index
+
+var box _box_va  = na
+var box _box_sup = na
+var box _box_res = na
+
+if show_vah_val and show_va_rect
+    if na(_box_va)
+        _box_va := box.new(left_edge, vah_price, right_edge, val_price, border_color=color.new(vah_color, 70), border_width=1, bgcolor=va_fill)
+    else
+        box.set_left(_box_va, left_edge)
+        box.set_right(_box_va, right_edge)
+        box.set_top(_box_va, vah_price)
+        box.set_bottom(_box_va, val_price)
+        box.set_bgcolor(_box_va, va_fill)
+else if not na(_box_va)
+    box.delete(_box_va)
+    _box_va := na
+
+if show_support_zone
+    if na(_box_sup)
+        _box_sup := box.new(left_edge, val_price, right_edge, support_zone_bottom, border_color=color.new(val_color, 70), border_width=1, bgcolor=support_fill)
+    else
+        box.set_left(_box_sup, left_edge)
+        box.set_right(_box_sup, right_edge)
+        box.set_top(_box_sup, val_price)
+        box.set_bottom(_box_sup, support_zone_bottom)
+        box.set_bgcolor(_box_sup, support_fill)
+else if not na(_box_sup)
+    box.delete(_box_sup)
+    _box_sup := na
+
+if show_resistance_zone
+    if na(_box_res)
+        _box_res := box.new(left_edge, resistance_zone_top, right_edge, vah_price, border_color=color.new(vah_color, 70), border_width=1, bgcolor=resistance_fill)
+    else
+        box.set_left(_box_res, left_edge)
+        box.set_right(_box_res, right_edge)
+        box.set_top(_box_res, resistance_zone_top)
+        box.set_bottom(_box_res, vah_price)
+        box.set_bgcolor(_box_res, resistance_fill)
+else if not na(_box_res)
+    box.delete(_box_res)
+    _box_res := na
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ZONE LABELS — where price is likely to move with volume
+// ═══════════════════════════════════════════════════════════════════════════════
+
+label_sz = label_size == "tiny" ? size.tiny : label_size == "small" ? size.small : size.normal
+var label _l_poc  = na
+var label _l_sup  = na
+var label _l_res  = na
+if show_zone_labels
+    if na(_l_poc) and show_poc
+        _l_poc := label.new(bar_index, poc_price, "POC — High volume\nPrice may react here", style=label.style_label_left, color=color.new(poc_color, 70), textcolor=color.black, size=label_sz)
+    else if show_poc
+        label.set_xy(_l_poc, bar_index, poc_price)
+        label.set_text(_l_poc, "POC — High volume\nPrice may react here")
+    else if not na(_l_poc)
+        label.delete(_l_poc)
+        _l_poc := na
+    if na(_l_sup) and show_support_zone
+        _l_sup := label.new(bar_index, (val_price + support_zone_bottom) / 2, "Support zone\nPrice may bounce up", style=label.style_label_left, color=color.new(support_fill, 60), textcolor=color.black, size=label_sz)
+    else if show_support_zone
+        label.set_xy(_l_sup, bar_index, (val_price + support_zone_bottom) / 2)
+        label.set_text(_l_sup, "Support zone\nPrice may bounce up")
+    else if not na(_l_sup)
+        label.delete(_l_sup)
+        _l_sup := na
+    if na(_l_res) and show_resistance_zone
+        _l_res := label.new(bar_index, (vah_price + resistance_zone_top) / 2, "Resistance zone\nPrice may reject down", style=label.style_label_left, color=color.new(resistance_fill, 60), textcolor=color.black, size=label_sz)
+    else if show_resistance_zone
+        label.set_xy(_l_res, bar_index, (vah_price + resistance_zone_top) / 2)
+        label.set_text(_l_res, "Resistance zone\nPrice may reject down")
+    else if not na(_l_res)
+        label.delete(_l_res)
+        _l_res := na
