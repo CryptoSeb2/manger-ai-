@@ -1,0 +1,35 @@
+/* WorkWithAi custom styles - supplements Tailwind */
+
+/* Smooth page transitions */
+main {
+    scroll-behavior: smooth;
+}
+
+/* Custom scrollbar for transcript panels */
+.max-h-64::-webkit-scrollbar {
+    width: 6px;
+}
+
+.max-h-64::-webkit-scrollbar-track {
+    background: #f3f4f6;
+    border-radius: 3px;
+}
+
+.max-h-64::-webkit-scrollbar-thumb {
+    background: #d1d5db;
+    border-radius: 3px;
+}
+
+.max-h-64::-webkit-scrollbar-thumb:hover {
+    background: #9ca3af;
+}
+
+/* Dialog backdrop animation */
+dialog::backdrop {
+    animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}

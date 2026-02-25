@@ -1,0 +1,93 @@
+{
+  "name": "WorkWithAi - Check Availability",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "check-availability",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook - Check Availability",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [250, 300],
+      "webhookId": "check-availability"
+    },
+    {
+      "parameters": {
+        "resource": "event",
+        "operation": "getAll",
+        "calendar": {
+          "__rl": true,
+          "mode": "list",
+          "value": "={{ $json.body.business_calendar_id || 'primary' }}"
+        },
+        "timeMin": "={{ $json.body.date }}T08:00:00Z",
+        "timeMax": "={{ $json.body.date }}T20:00:00Z",
+        "returnAll": true,
+        "options": {
+          "singleEvents": true,
+          "orderBy": "startTime"
+        }
+      },
+      "id": "google-calendar-events",
+      "name": "Google Calendar - Get Events",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1,
+      "position": [500, 300],
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Google Calendar Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get all existing events for the day\nconst events = $input.all().map(item => item.json);\n\n// Business hours: 9 AM to 5 PM, 30-min slots\nconst slots = [];\nconst bookedTimes = events.map(e => {\n  const start = new Date(e.start?.dateTime || e.start?.date);\n  const end = new Date(e.end?.dateTime || e.end?.date);\n  return { start, end };\n});\n\nconst requestDate = $('Webhook - Check Availability').item.json.body.date;\n\nfor (let hour = 9; hour < 17; hour++) {\n  for (let min = 0; min < 60; min += 30) {\n    const slotStart = new Date(`${requestDate}T${String(hour).padStart(2,'0')}:${String(min).padStart(2,'0')}:00`);\n    const slotEnd = new Date(slotStart.getTime() + 30 * 60000);\n    \n    const isBooked = bookedTimes.some(b => \n      slotStart < b.end && slotEnd > b.start\n    );\n    \n    if (!isBooked) {\n      slots.push(`${String(hour).padStart(2,'0')}:${String(min).padStart(2,'0')}`);\n    }\n  }\n}\n\nconst dateFormatted = new Date(requestDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });\n\nlet message;\nif (slots.length === 0) {\n  message = `There are no available slots on ${dateFormatted}. Would you like to check another date?`;\n} else {\n  const slotList = slots.map(s => {\n    const [h, m] = s.split(':');\n    const hour12 = h % 12 || 12;\n    const ampm = h < 12 ? 'AM' : 'PM';\n    return `${hour12}:${m} ${ampm}`;\n  }).join(', ');\n  message = `Available times on ${dateFormatted}: ${slotList}. Which time works best for you?`;\n}\n\nreturn [{ json: { result: message, available_slots: slots } }];"
+      },
+      "id": "code-availability",
+      "name": "Calculate Available Slots",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [750, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "webhook-response",
+      "name": "Respond to Retell",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1000, 300]
+    }
+  ],
+  "connections": {
+    "Webhook - Check Availability": {
+      "main": [
+        [{ "node": "Google Calendar - Get Events", "type": "main", "index": 0 }]
+      ]
+    },
+    "Google Calendar - Get Events": {
+      "main": [
+        [{ "node": "Calculate Available Slots", "type": "main", "index": 0 }]
+      ]
+    },
+    "Calculate Available Slots": {
+      "main": [
+        [{ "node": "Respond to Retell", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    { "name": "WorkWithAi" }
+  ]
+}

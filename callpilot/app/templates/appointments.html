@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block title %}Appointments - WorkWithAi{% endblock %}
+
+{% block body %}
+<div class="flex h-full min-h-screen">
+    {% include "nav.html" %}
+
+    <main class="flex-1 overflow-y-auto">
+        <div class="px-8 py-8">
+            <div class="mb-8 flex items-center justify-between">
+                <div>
+                    <h1 class="text-2xl font-bold text-gray-900">Appointments</h1>
+                    <p class="mt-1 text-sm text-gray-500">All appointments booked by your AI phone agent.</p>
+                </div>
+                <button @click="$refs.modal.showModal()"
+                    x-data
+                    class="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 transition-colors">
+                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                    </svg>
+                    New Appointment
+                </button>
+            </div>
+
+            <!-- Appointment cards -->
+            <div class="grid gap-4">
+                {% if appointments %}
+                    {% for appt in appointments %}
+                    <div class="rounded-xl bg-white shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow"
+                         x-data="{ showActions: false }">
+                        <div class="flex items-start justify-between">
+                            <div class="flex items-start gap-4">
+                                <div class="flex h-12 w-12 items-center justify-center rounded-xl {{ 'bg-green-50' if appt.status == 'confirmed' else ('bg-red-50' if appt.status == 'cancelled' else ('bg-blue-50' if appt.status == 'completed' else 'bg-gray-50')) }}">
+                                    <svg class="h-6 w-6 {{ 'text-green-600' if appt.status == 'confirmed' else ('text-red-600' if appt.status == 'cancelled' else ('text-blue-600' if appt.status == 'completed' else 'text-gray-400')) }}" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+                                    </svg>
+                                </div>
+                                <div>
+                                    <h3 class="text-base font-semibold text-gray-900">{{ appt.customer_name }}</h3>
+                                    <div class="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500">
+                                        <span>{{ appt.appointment_time|fmt_datetime }}</span>
+                                        <span>{{ appt.duration_minutes }} min</span>
+                                        {% if appt.service %}
+                                        <span class="inline-flex items-center rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-medium text-brand-700">{{ appt.service }}</span>
+                                        {% endif %}
+                                    </div>
+                                    {% if appt.customer_phone %}
+                                    <p class="mt-1 text-sm text-gray-400">{{ appt.customer_phone }}</p>
+                                    {% endif %}
+                                    {% if appt.notes %}
+                                    <p class="mt-2 text-sm text-gray-500">{{ appt.notes }}</p>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold {{ 'bg-green-50 text-green-700 ring-1 ring-green-600/20' if appt.status == 'confirmed' else ('bg-red-50 text-red-700 ring-1 ring-red-600/20' if appt.status == 'cancelled' else ('bg-blue-50 text-blue-700 ring-1 ring-blue-600/20' if appt.status == 'completed' else 'bg-gray-50 text-gray-600 ring-1 ring-gray-500/20')) }}">
+                                    {{ appt.status|capitalize }}
+                                </span>
+                                {% if appt.status == 'confirmed' %}
+                                <div class="relative" @click.away="showActions = false">
+                                    <button @click="showActions = !showActions" class="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600">
+                                        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z" />
+                                        </svg>
+                                    </button>
+                                    <div x-show="showActions" x-cloak
+                                        class="absolute right-0 z-10 mt-1 w-40 rounded-lg bg-white shadow-lg ring-1 ring-black/5">
+                                        <button @click="fetch('/api/appointments/{{ appt.id }}/update', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({status:'completed'})}).then(()=>location.reload())"
+                                            class="block w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 rounded-t-lg">Mark Completed</button>
+                                        <button @click="fetch('/api/appointments/{{ appt.id }}/update', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({status:'cancelled'})}).then(()=>location.reload())"
+                                            class="block w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 rounded-b-lg">Cancel</button>
+                                    </div>
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="rounded-xl bg-white shadow-sm border border-gray-200 p-12 text-center">
+                        <svg class="mx-auto h-12 w-12 text-gray-300" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+                        </svg>
+                        <p class="mt-4 text-sm font-medium text-gray-900">No appointments yet</p>
+                        <p class="mt-1 text-sm text-gray-500">Appointments booked by your AI agent or manually will show here.</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- New Appointment Modal -->
+        <dialog x-ref="modal" class="rounded-2xl bg-white p-0 shadow-xl backdrop:bg-gray-900/50 max-w-lg w-full">
+            <form method="dialog" x-data="{ submitting: false }"
+                  @submit.prevent="
+                      submitting = true;
+                      const fd = new FormData($el);
+                      const data = Object.fromEntries(fd.entries());
+                      data.appointment_time = data.date + 'T' + data.time + ':00';
+                      data.duration_minutes = parseInt(data.duration_minutes);
+                      delete data.date; delete data.time;
+                      fetch('/api/appointments/create', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)})
+                        .then(r => { if(r.ok) location.reload(); else { submitting=false; alert('Failed to create appointment'); } })
+                        .catch(() => { submitting=false; });
+                  ">
+                <div class="border-b border-gray-200 px-6 py-4">
+                    <h3 class="text-lg font-semibold text-gray-900">New Appointment</h3>
+                </div>
+                <div class="space-y-4 px-6 py-6">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Customer Name</label>
+                        <input type="text" name="customer_name" required class="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20">
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Phone</label>
+                            <input type="tel" name="customer_phone" class="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Email</label>
+                            <input type="email" name="customer_email" class="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Service</label>
+                        <input type="text" name="service" class="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20">
+                    </div>
+                    <div class="grid grid-cols-3 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Date</label>
+                            <input type="date" name="date" required class="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Time</label>
+                            <input type="time" name="time" required class="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Duration (min)</label>
+                            <input type="number" name="duration_minutes" value="30" min="15" step="15" class="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Notes</label>
+                        <textarea name="notes" rows="2" class="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"></textarea>
+                    </div>
+                </div>
+                <div class="flex justify-end gap-3 border-t border-gray-200 px-6 py-4">
+                    <button type="button" @click="$refs.modal.close()" class="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
+                    <button type="submit" :disabled="submitting" class="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50">
+                        <span x-show="!submitting">Create Appointment</span>
+                        <span x-show="submitting" x-cloak>Creating...</span>
+                    </button>
+                </div>
+            </form>
+        </dialog>
+    </main>
+</div>
+{% endblock %}

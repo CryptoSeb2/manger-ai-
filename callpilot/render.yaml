@@ -1,0 +1,19 @@
+# Render Blueprint - Deploy CallPilot (WorkWithAi)
+# Use this if you prefer blueprint deployment, or follow RENDER_DEPLOY.md for manual setup
+
+services:
+  - type: web
+    name: workwithai
+    runtime: python
+    region: oregon
+
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12"
+      # Add these in Render Dashboard → Environment:
+      # SECRET_KEY, RETELL_API_KEY, N8N_WEBHOOK_BASE_URL, APP_BASE_URL
+      # OPENAI_API_KEY (optional, for chatbot)
+      # Stripe keys if using billing

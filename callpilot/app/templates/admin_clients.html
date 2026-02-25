@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Client Management - WorkWithAi Admin{% endblock %}
+
+{% block body %}
+<div class="flex h-full min-h-screen">
+    {% include "nav.html" %}
+
+    <main class="flex-1 overflow-y-auto">
+        <div class="px-8 py-8">
+            <div class="mb-8 flex items-center justify-between">
+                <div>
+                    <h1 class="text-2xl font-bold text-gray-900">Client Management</h1>
+                    <p class="mt-1 text-sm text-gray-500">All businesses onboarded through the intake form.</p>
+                </div>
+                <div class="flex items-center gap-3">
+                    <div class="rounded-lg bg-brand-50 px-4 py-2 border border-brand-200">
+                        <p class="text-xs text-brand-600 font-medium">Intake Form Link</p>
+                        <code class="text-sm text-brand-800" id="intake-url">{{ base_url }}/intake</code>
+                    </div>
+                    <button onclick="navigator.clipboard.writeText(document.getElementById('intake-url').textContent); this.textContent='Copied!'; setTimeout(()=>this.textContent='Copy Link', 2000)"
+                        class="rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700">
+                        Copy Link
+                    </button>
+                </div>
+            </div>
+
+            <div class="rounded-xl bg-white shadow-sm border border-gray-200 overflow-hidden">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Business</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Email</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">AI Phone Number</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Agent Status</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Calls</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Appointments</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Joined</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100">
+                        {% if clients %}
+                            {% for client in clients %}
+                            <tr class="hover:bg-gray-50">
+                                <td class="whitespace-nowrap px-6 py-4">
+                                    <div class="flex items-center gap-3">
+                                        <div class="flex h-9 w-9 items-center justify-center rounded-full bg-brand-100 text-brand-700 text-sm font-bold">
+                                            {{ client.business.name[0]|upper }}
+                                        </div>
+                                        <div>
+                                            <p class="text-sm font-medium text-gray-900">{{ client.business.name }}</p>
+                                            <p class="text-xs text-gray-400">{{ client.business.business_phone or '' }}</p>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{{ client.business.email }}</td>
+                                <td class="whitespace-nowrap px-6 py-4">
+                                    {% if client.business.assigned_phone_number %}
+                                    <span class="text-sm font-medium text-gray-900">{{ client.business.assigned_phone_number }}</span>
+                                    {% else %}
+                                    <span class="text-sm text-gray-400">Not assigned</span>
+                                    {% endif %}
+                                </td>
+                                <td class="whitespace-nowrap px-6 py-4">
+                                    <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium {{ 'bg-green-50 text-green-700' if client.business.retell_agent_id else 'bg-gray-100 text-gray-500' }}">
+                                        {{ 'Active' if client.business.retell_agent_id else 'Pending' }}
+                                    </span>
+                                </td>
+                                <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{{ client.call_count }}</td>
+                                <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{{ client.appt_count }}</td>
+                                <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">{{ client.business.created_at|fmt_datetime }}</td>
+                            </tr>
+                            {% endfor %}
+                        {% else %}
+                            <tr>
+                                <td colspan="7" class="px-6 py-16 text-center">
+                                    <p class="text-sm font-medium text-gray-900">No clients yet</p>
+                                    <p class="mt-1 text-sm text-gray-500">Share your intake form link with new business clients to get started.</p>
+                                </td>
+                            </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+</div>
+{% endblock %}

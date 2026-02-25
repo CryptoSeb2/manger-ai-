@@ -1,0 +1,108 @@
+{
+  "name": "WorkWithAi - Book Appointment",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "book-appointment",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook - Book Appointment",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [250, 300],
+      "webhookId": "book-appointment"
+    },
+    {
+      "parameters": {
+        "resource": "event",
+        "operation": "create",
+        "calendar": {
+          "__rl": true,
+          "mode": "list",
+          "value": "={{ $json.body.business_calendar_id || 'primary' }}"
+        },
+        "start": "={{ $json.body.preferred_date }}T{{ $json.body.preferred_time }}:00",
+        "end": "={{ DateTime.fromISO($json.body.preferred_date + 'T' + $json.body.preferred_time + ':00').plus({ minutes: 30 }).toISO() }}",
+        "additionalFields": {
+          "summary": "Appointment: {{ $json.body.customer_name }} - {{ $json.body.service }}",
+          "description": "Booked by WorkWithAi AI Phone Agent\n\nCustomer: {{ $json.body.customer_name }}\nPhone: {{ $json.body.customer_phone || 'Not provided' }}\nService: {{ $json.body.service }}\n\nCall ID: {{ $json.body.call_id || 'N/A' }}",
+          "attendees": [],
+          "location": ""
+        }
+      },
+      "id": "google-calendar-create",
+      "name": "Google Calendar - Create Event",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1,
+      "position": [500, 300],
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Google Calendar Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CALLPILOT_APP_URL || 'http://localhost:8000' }}/api/appointments/webhook",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "business_id", "value": "={{ $('Webhook - Book Appointment').item.json.body.business_id }}" },
+            { "name": "call_id", "value": "={{ $('Webhook - Book Appointment').item.json.body.call_id || '' }}" },
+            { "name": "customer_name", "value": "={{ $('Webhook - Book Appointment').item.json.body.customer_name }}" },
+            { "name": "customer_phone", "value": "={{ $('Webhook - Book Appointment').item.json.body.customer_phone || '' }}" },
+            { "name": "service", "value": "={{ $('Webhook - Book Appointment').item.json.body.service }}" },
+            { "name": "appointment_time", "value": "={{ $('Webhook - Book Appointment').item.json.body.preferred_date }}T{{ $('Webhook - Book Appointment').item.json.body.preferred_time }}:00" },
+            { "name": "google_event_id", "value": "={{ $('Google Calendar - Create Event').item.json.id || '' }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "http-save-appointment",
+      "name": "Save to WorkWithAi Dashboard",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [750, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"result\": \"Appointment booked successfully for {{ $('Webhook - Book Appointment').item.json.body.customer_name }} on {{ $('Webhook - Book Appointment').item.json.body.preferred_date }} at {{ $('Webhook - Book Appointment').item.json.body.preferred_time }}. The appointment has been added to the calendar.\"\n}",
+        "options": {}
+      },
+      "id": "webhook-response",
+      "name": "Respond to Retell",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1000, 300]
+    }
+  ],
+  "connections": {
+    "Webhook - Book Appointment": {
+      "main": [
+        [{ "node": "Google Calendar - Create Event", "type": "main", "index": 0 }]
+      ]
+    },
+    "Google Calendar - Create Event": {
+      "main": [
+        [{ "node": "Save to WorkWithAi Dashboard", "type": "main", "index": 0 }]
+      ]
+    },
+    "Save to WorkWithAi Dashboard": {
+      "main": [
+        [{ "node": "Respond to Retell", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    { "name": "WorkWithAi" }
+  ]
+}

@@ -1,0 +1,156 @@
+{
+  "name": "WorkWithAi - Post Call Processing",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "post-call",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook - Post Call",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [250, 300],
+      "webhookId": "post-call"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "check-event",
+              "leftValue": "={{ $json.body.event || $json.body.call?.status || '' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "isNotEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "filter-valid",
+      "name": "Filter Valid Events",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract call data from Retell webhook payload\nconst body = $input.item.json.body || $input.item.json;\n\n// Retell sends different event types; we want call_analyzed or call_ended\nconst callData = body.call || body;\n\nconst result = {\n  retell_call_id: callData.call_id || body.call_id || '',\n  agent_id: callData.agent_id || body.agent_id || '',\n  caller_number: callData.from_number || callData.caller_number || '',\n  direction: callData.direction || 'inbound',\n  duration_seconds: callData.call_duration_ms ? callData.call_duration_ms / 1000 : (callData.duration_seconds || 0),\n  transcript: callData.transcript || '',\n  summary: '',\n  sentiment: '',\n  call_status: callData.call_status || callData.status || 'completed',\n  disconnection_reason: callData.disconnection_reason || '',\n};\n\n// Extract post-call analysis if available\nif (callData.call_analysis) {\n  result.summary = callData.call_analysis.call_summary || '';\n  result.sentiment = callData.call_analysis.caller_sentiment || '';\n}\n\n// Build readable transcript from structured data\nif (callData.transcript_object && Array.isArray(callData.transcript_object)) {\n  result.transcript = callData.transcript_object\n    .map(t => `${t.role === 'agent' ? 'Agent' : 'Caller'}: ${t.content}`)\n    .join('\\n');\n} else if (typeof callData.transcript === 'string') {\n  result.transcript = callData.transcript;\n}\n\nreturn [{ json: result }];"
+      },
+      "id": "code-extract",
+      "name": "Extract Call Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [750, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CALLPILOT_APP_URL || 'http://localhost:8000' }}/api/calls/webhook",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "http-save-call",
+      "name": "Save to WorkWithAi Dashboard",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1000, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "has-summary",
+              "leftValue": "={{ $('Extract Call Data').item.json.summary }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "isNotEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "filter-for-email",
+      "name": "Has Summary?",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [1250, 200]
+    },
+    {
+      "parameters": {
+        "fromEmail": "workwithai@yourdomain.com",
+        "toEmail": "={{ $env.BUSINESS_NOTIFICATION_EMAIL || '' }}",
+        "subject": "=WorkWithAi: New call from {{ $('Extract Call Data').item.json.caller_number || 'unknown caller' }}",
+        "emailType": "text",
+        "message": "=New call handled by your AI agent:\n\nCaller: {{ $('Extract Call Data').item.json.caller_number || 'Unknown' }}\nDuration: {{ Math.round($('Extract Call Data').item.json.duration_seconds / 60) }} minutes\nSentiment: {{ $('Extract Call Data').item.json.sentiment || 'N/A' }}\n\nSummary:\n{{ $('Extract Call Data').item.json.summary }}\n\nView full details at your WorkWithAi dashboard.",
+        "options": {}
+      },
+      "id": "send-email",
+      "name": "Email Notification",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [1500, 200],
+      "credentials": {
+        "smtp": {
+          "id": "REPLACE_WITH_YOUR_SMTP_CREDENTIAL_ID",
+          "name": "SMTP"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook - Post Call": {
+      "main": [
+        [{ "node": "Filter Valid Events", "type": "main", "index": 0 }]
+      ]
+    },
+    "Filter Valid Events": {
+      "main": [
+        [{ "node": "Extract Call Data", "type": "main", "index": 0 }]
+      ]
+    },
+    "Extract Call Data": {
+      "main": [
+        [{ "node": "Save to WorkWithAi Dashboard", "type": "main", "index": 0 }]
+      ]
+    },
+    "Save to WorkWithAi Dashboard": {
+      "main": [
+        [{ "node": "Has Summary?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Has Summary?": {
+      "main": [
+        [{ "node": "Email Notification", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    { "name": "WorkWithAi" }
+  ]
+}

@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Chatbot - WorkWithAi{% endblock %}
+
+{% block body %}
+<div class="flex h-full min-h-screen">
+    {% include "nav.html" %}
+
+    <main class="flex-1 overflow-y-auto">
+        <div class="px-8 py-8 max-w-3xl">
+            <div class="mb-8">
+                <h1 class="text-2xl font-bold text-gray-900">Website Chatbot</h1>
+                <p class="mt-1 text-sm text-gray-500">Add an AI chat widget to your website. It answers visitor questions using your business info.</p>
+                <p class="mt-2 text-sm text-brand-600 font-medium">💬 Look for the purple chat bubble in the bottom-right corner to try it now.</p>
+            </div>
+
+            <div class="rounded-xl bg-white border border-gray-200 overflow-hidden mb-8">
+                <div class="px-6 py-4 border-b border-gray-100">
+                    <h2 class="text-base font-semibold text-gray-900">Embed Code</h2>
+                    <p class="mt-1 text-sm text-gray-500">Copy this code and paste it before <code class="rounded bg-gray-100 px-1 py-0.5 text-xs">&lt;/body&gt;</code> on your website.</p>
+                </div>
+                <div class="p-6 bg-gray-50">
+                    <pre class="text-sm text-gray-800 overflow-x-auto p-4 rounded-lg bg-white border border-gray-200 font-mono whitespace-pre-wrap break-all">{{ embed_code|e }}</pre>
+                    <script type="application/json" id="embed-code-raw">{{ embed_code|tojson }}</script>
+                    <button id="copy-embed-btn" class="mt-4 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 transition">
+                        Copy Code
+                    </button>
+                    <script>
+                        document.getElementById('copy-embed-btn').onclick = function() {
+                            var c = JSON.parse(document.getElementById('embed-code-raw').textContent);
+                            navigator.clipboard.writeText(c);
+                            this.textContent = 'Copied!';
+                            setTimeout(function() { document.getElementById('copy-embed-btn').textContent = 'Copy Code'; }, 2000);
+                        };
+                    </script>
+                </div>
+            </div>
+
+            <div class="rounded-xl bg-white border border-gray-200 overflow-hidden mb-8">
+                <div class="px-6 py-4 border-b border-gray-100">
+                    <h2 class="text-base font-semibold text-gray-900">How to Add to Your Site</h2>
+                </div>
+                <div class="px-6 py-6 space-y-4 text-sm text-gray-600">
+                    <div class="flex gap-3">
+                        <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-100 text-brand-700 text-xs font-bold">1</span>
+                        <p>Copy the embed code above.</p>
+                    </div>
+                    <div class="flex gap-3">
+                        <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-100 text-brand-700 text-xs font-bold">2</span>
+                        <p>In your website builder (Wix, Squarespace, WordPress, etc.), find <strong>Custom Code</strong> or <strong>Code Injection</strong>.</p>
+                    </div>
+                    <div class="flex gap-3">
+                        <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-100 text-brand-700 text-xs font-bold">3</span>
+                        <p>Paste the code in the footer section, before the closing <code class="rounded bg-gray-100 px-1">&lt;/body&gt;</code> tag.</p>
+                    </div>
+                    <div class="flex gap-3">
+                        <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-100 text-brand-700 text-xs font-bold">4</span>
+                        <p>Save and publish. The chat button will appear in the bottom-right corner of your site.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="rounded-xl bg-white border border-gray-200 overflow-hidden">
+                <div class="px-6 py-4 border-b border-gray-100">
+                    <h2 class="text-base font-semibold text-gray-900">Live Preview</h2>
+                    <p class="mt-1 text-sm text-gray-500">Try the chatbot — it's loaded on this page.</p>
+                </div>
+                <div class="p-6 bg-gray-100 min-h-[400px] relative">
+                    <p class="text-sm text-gray-600 mb-4">The chat widget appears as a <strong>purple bubble in the bottom-right corner</strong> of this page. Click it to open the chat and test it.</p>
+                    <a href="/" target="_blank" rel="noopener" class="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 transition">
+                        Open landing page to try it
+                        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                    </a>
+                </div>
+            </div>
+
+            <p class="mt-6 text-xs text-gray-400">The chatbot uses your business hours, services, and FAQs from Settings. Keep those updated for best results. Review <a href="/chat-logs" class="text-brand-600 hover:underline">Chat Logs</a> to see what visitors ask and add common questions to FAQs.</p>
+        </div>
+    </main>
+</div>
+{% endblock %}

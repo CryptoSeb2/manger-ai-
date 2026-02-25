@@ -1,0 +1,332 @@
+{% extends "base.html" %}
+{% block title %}Intake Form - WorkWithAi{% endblock %}
+
+{% block body %}
+<div class="min-h-full bg-white">
+    <div class="mx-auto max-w-3xl px-6 py-12">
+
+        <div class="mb-8">
+            <a href="/" class="text-sm text-brand-600 hover:text-brand-700">&larr; Back</a>
+            <h1 class="mt-4 text-2xl font-bold">Client Intake Form</h1>
+            <p class="mt-1 text-gray-500">Fill this out so we can set up your AI phone agent. The more detail you give us, the better your agent will perform.</p>
+        </div>
+
+        {% if success %}
+        <div class="rounded-lg bg-green-50 border border-green-200 p-8 text-center">
+            <h2 class="text-xl font-bold text-green-900">Got it. We'll be in touch within 24 hours.</h2>
+            <p class="mt-2 text-green-700">We'll configure your AI agent, test it, and send you your phone number and login credentials.</p>
+            <p class="mt-4 text-green-600 text-sm">Once you receive your login, head to the <strong>Billing</strong> page in your dashboard to activate your subscription via Stripe.</p>
+        </div>
+        {% else %}
+
+        {% if error %}
+        <div class="mb-6 rounded-lg bg-red-50 border border-red-200 p-4">
+            <p class="text-sm text-red-700">{{ error }}</p>
+        </div>
+        {% endif %}
+
+        <form action="/intake" method="POST" x-data="intake()" @submit="prepareSubmit()">
+
+            <!-- SECTION 1: Business Info -->
+            <div class="mb-10">
+                <h2 class="text-lg font-bold mb-1">Business Information</h2>
+                <p class="text-sm text-gray-400 mb-4">Basic details about your business.</p>
+
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Business Name <span class="text-red-500">*</span></label>
+                        <input type="text" name="business_name" required class="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600">
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Owner / Contact Name <span class="text-red-500">*</span></label>
+                            <input type="text" name="contact_name" required class="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Job Title</label>
+                            <input type="text" name="contact_title" class="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600" placeholder="e.g., Owner, Office Manager">
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Email <span class="text-red-500">*</span></label>
+                            <input type="email" name="email" required class="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Phone Number <span class="text-red-500">*</span></label>
+                            <input type="tel" name="phone_number" required class="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Business Address</label>
+                        <input type="text" name="address" class="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600" placeholder="Street, City, State, ZIP">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Website</label>
+                        <input type="url" name="website" class="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600" placeholder="https://yourbusiness.com">
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Industry</label>
+                            <select name="industry" class="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600">
+                                <option value="">Select</option>
+                                <option value="dental">Dental / Orthodontics</option>
+                                <option value="medical">Medical / Healthcare</option>
+                                <option value="salon">Salon / Barbershop / Spa</option>
+                                <option value="legal">Law Firm / Legal</option>
+                                <option value="home_services">HVAC / Plumbing / Electrical</option>
+                                <option value="auto">Auto / Mechanic</option>
+                                <option value="real_estate">Real Estate</option>
+                                <option value="restaurant">Restaurant / Food Service</option>
+                                <option value="fitness">Gym / Fitness</option>
+                                <option value="consulting">Consulting / Professional Services</option>
+                                <option value="other">Other</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">How many employees?</label>
+                            <select name="employee_count" class="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600">
+                                <option value="">Select</option>
+                                <option value="1">Just me</option>
+                                <option value="2-5">2-5</option>
+                                <option value="6-15">6-15</option>
+                                <option value="16-50">16-50</option>
+                                <option value="50+">50+</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">How many calls do you get per day (estimate)?</label>
+                        <select name="daily_call_volume" class="mt-1 w-full sm:w-64 rounded-lg border border-gray-300 px-4 py-2.5 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600">
+                            <option value="">Select</option>
+                            <option value="1-5">1-5 calls/day</option>
+                            <option value="5-15">5-15 calls/day</option>
+                            <option value="15-30">15-30 calls/day</option>
+                            <option value="30-50">30-50 calls/day</option>
+                            <option value="50+">50+ calls/day</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Which plan are you interested in?</label>
+                        <select name="plan_interest" class="mt-1 w-full sm:w-64 rounded-lg border border-gray-300 px-4 py-2.5 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600">
+                            <option value="">Select</option>
+                            <option value="pro">Pro - $499/mo (500 calls)</option>
+                            <option value="enterprise">Enterprise - $699/mo (Unlimited)</option>
+                            <option value="not_sure">Not sure yet</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <hr class="mb-10 border-gray-200">
+
+            <!-- SECTION 2: Business Hours -->
+            <div class="mb-10">
+                <h2 class="text-lg font-bold mb-1">Business Hours</h2>
+                <p class="text-sm text-gray-400 mb-4">Type "Closed" for days you're not open.</p>
+
+                <div class="space-y-3">
+                    <template x-for="day in days" :key="day">
+                        <div class="flex items-center gap-4">
+                            <label class="w-24 text-sm font-medium text-gray-700" x-text="day"></label>
+                            <input type="text" x-model="hours[day]"
+                                class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+                                placeholder="9:00 AM - 5:00 PM">
+                        </div>
+                    </template>
+                </div>
+                <input type="hidden" name="hours_json" :value="JSON.stringify(hours)">
+            </div>
+
+            <hr class="mb-10 border-gray-200">
+
+            <!-- SECTION 3: Services -->
+            <div class="mb-10">
+                <h2 class="text-lg font-bold mb-1">Services You Offer</h2>
+                <p class="text-sm text-gray-400 mb-4">List every service customers can book or ask about. Include pricing if you want the AI to mention it.</p>
+
+                <div class="space-y-3">
+                    <template x-for="(svc, idx) in services" :key="idx">
+                        <div class="flex items-center gap-2">
+                            <input type="text" x-model="services[idx]"
+                                class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+                                placeholder="e.g., Teeth Cleaning - $150, Haircut - $30">
+                            <button type="button" @click="services.splice(idx, 1)" x-show="services.length > 1"
+                                class="rounded p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 text-sm">&#10005;</button>
+                        </div>
+                    </template>
+                    <button type="button" @click="services.push('')" class="text-sm font-medium text-brand-600 hover:text-brand-700">+ Add service</button>
+                </div>
+                <input type="hidden" name="services_json" :value="JSON.stringify(services.filter(s => s.trim()))">
+            </div>
+
+            <hr class="mb-10 border-gray-200">
+
+            <!-- SECTION 4: FAQs -->
+            <div class="mb-10">
+                <h2 class="text-lg font-bold mb-1">Frequently Asked Questions</h2>
+                <p class="text-sm text-gray-400 mb-4">What do customers usually ask when they call? Give us the question and the answer you want the AI to say.</p>
+
+                <div class="space-y-4">
+                    <template x-for="(faq, idx) in faqs" :key="idx">
+                        <div class="border border-gray-200 rounded-lg p-4 space-y-2">
+                            <div class="flex items-center justify-between">
+                                <span class="text-xs font-bold text-gray-400">FAQ #<span x-text="idx+1"></span></span>
+                                <button type="button" @click="faqs.splice(idx, 1)" x-show="faqs.length > 1"
+                                    class="text-gray-400 hover:text-red-500 text-sm">&#10005;</button>
+                            </div>
+                            <input type="text" x-model="faqs[idx].question"
+                                class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+                                placeholder="Question customers ask">
+                            <textarea x-model="faqs[idx].answer" rows="2"
+                                class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+                                placeholder="How the AI should answer"></textarea>
+                        </div>
+                    </template>
+                    <button type="button" @click="faqs.push({question:'',answer:''})" class="text-sm font-medium text-brand-600 hover:text-brand-700">+ Add FAQ</button>
+                </div>
+                <input type="hidden" name="faqs_json" :value="JSON.stringify(faqs.filter(f => f.question.trim()))">
+            </div>
+
+            <hr class="mb-10 border-gray-200">
+
+            <!-- SECTION 5: Appointment Details -->
+            <div class="mb-10">
+                <h2 class="text-lg font-bold mb-1">Appointment Details</h2>
+                <p class="text-sm text-gray-400 mb-4">How do appointments work at your business?</p>
+
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Default appointment length</label>
+                        <select name="appointment_duration" class="mt-1 w-full sm:w-48 rounded-lg border border-gray-300 px-4 py-2.5 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600">
+                            <option value="15">15 minutes</option>
+                            <option value="30" selected>30 minutes</option>
+                            <option value="45">45 minutes</option>
+                            <option value="60">1 hour</option>
+                            <option value="90">1.5 hours</option>
+                            <option value="120">2 hours</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Google Calendar email (where appointments get booked)</label>
+                        <input type="text" name="google_calendar_id" class="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600" placeholder="your-email@gmail.com">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">What info should the AI collect before booking? (check all that apply)</label>
+                        <div class="mt-2 space-y-2">
+                            <label class="flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" name="collect_name" value="yes" checked class="rounded border-gray-300"> Customer name</label>
+                            <label class="flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" name="collect_phone" value="yes" checked class="rounded border-gray-300"> Phone number</label>
+                            <label class="flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" name="collect_email" value="yes" class="rounded border-gray-300"> Email address</label>
+                            <label class="flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" name="collect_insurance" value="yes" class="rounded border-gray-300"> Insurance info</label>
+                            <label class="flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" name="collect_reason" value="yes" checked class="rounded border-gray-300"> Reason for visit / service needed</label>
+                            <label class="flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" name="collect_new_patient" value="yes" class="rounded border-gray-300"> New or returning customer</label>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Any appointment rules?</label>
+                        <textarea name="appointment_rules" rows="3" class="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+                            placeholder="e.g., New patients need a 1-hour slot. Don't book back-to-back. Leave 15 min between appointments. Only book during business hours."></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <hr class="mb-10 border-gray-200">
+
+            <!-- SECTION 6: AI Agent Preferences -->
+            <div class="mb-10">
+                <h2 class="text-lg font-bold mb-1">AI Agent Preferences</h2>
+                <p class="text-sm text-gray-400 mb-4">Customize how your phone agent behaves.</p>
+
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">How should the AI greet callers?</label>
+                        <textarea name="greeting_message" rows="2" class="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+                            placeholder="e.g., Thank you for calling Bright Smile Dental, this is our virtual assistant. How can I help you today?"></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Preferred tone of voice</label>
+                        <select name="tone" class="mt-1 w-full sm:w-64 rounded-lg border border-gray-300 px-4 py-2.5 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600">
+                            <option value="professional">Professional and friendly</option>
+                            <option value="casual">Casual and warm</option>
+                            <option value="formal">Formal and polished</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">What should the AI do if it can't answer a question?</label>
+                        <select name="fallback_action" class="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600">
+                            <option value="take_message">Take a message and say someone will call back</option>
+                            <option value="transfer">Try to transfer to a specific number</option>
+                            <option value="email">Say they'll receive a follow-up email</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">If transferring, what number should it transfer to?</label>
+                        <input type="tel" name="transfer_number" class="mt-1 block w-full sm:w-64 rounded-lg border border-gray-300 px-4 py-2.5 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600" placeholder="(555) 000-0000">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Languages the AI should support</label>
+                        <div class="mt-2 space-y-2">
+                            <label class="flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" name="lang_en" value="yes" checked class="rounded border-gray-300"> English</label>
+                            <label class="flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" name="lang_es" value="yes" class="rounded border-gray-300"> Spanish</label>
+                            <label class="flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" name="lang_other" value="yes" class="rounded border-gray-300"> Other (specify below)</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <hr class="mb-10 border-gray-200">
+
+            <!-- SECTION 7: Additional Info -->
+            <div class="mb-10">
+                <h2 class="text-lg font-bold mb-1">Anything Else</h2>
+                <p class="text-sm text-gray-400 mb-4">Anything else the AI should know about your business or how you want calls handled.</p>
+
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Special instructions, policies, or things the AI must always say or never say</label>
+                        <textarea name="special_instructions" rows="5" class="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+                            placeholder="e.g., Always mention we have free parking. Never quote exact prices for consultations. If someone asks about emergencies, tell them to call 911. We have a cancellation policy of 24 hours notice."></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">How did you hear about us?</label>
+                        <select name="referral_source" class="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600">
+                            <option value="">Select</option>
+                            <option value="google">Google search</option>
+                            <option value="social_media">Social media</option>
+                            <option value="referral">Referral from someone</option>
+                            <option value="ad">Advertisement</option>
+                            <option value="other">Other</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Submit -->
+            <button type="submit" class="w-full rounded-lg bg-brand-600 px-6 py-3 text-sm font-semibold text-white hover:bg-brand-700">
+                Submit Intake Form
+            </button>
+            <p class="mt-3 text-center text-xs text-gray-400">We'll configure your AI agent and contact you within 24 hours.</p>
+        </form>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+function intake() {
+    return {
+        days: ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'],
+        hours: { Monday:'9:00 AM - 5:00 PM', Tuesday:'9:00 AM - 5:00 PM', Wednesday:'9:00 AM - 5:00 PM', Thursday:'9:00 AM - 5:00 PM', Friday:'9:00 AM - 5:00 PM', Saturday:'Closed', Sunday:'Closed' },
+        services: ['','','','',''],
+        faqs: [ {question:'',answer:''}, {question:'',answer:''}, {question:'',answer:''}, {question:'',answer:''}, {question:'',answer:''} ],
+        prepareSubmit() {
+            // industry and address hidden fields get populated from the visible form fields
+            const form = this.$el;
+            const industry = form.querySelector('select[name="industry"]');
+            const address = form.querySelector('input[name="address"]');
+            form.querySelector('input[name="industry"][type="hidden"]').value = industry ? industry.value : '';
+            form.querySelector('input[name="address"][type="hidden"]').value = address ? address.value : '';
+        }
+    };
+}
+</script>
+{% endblock %}

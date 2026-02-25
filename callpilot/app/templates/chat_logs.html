@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Chat Logs - WorkWithAi{% endblock %}
+
+{% block body %}
+<div class="flex h-full min-h-screen">
+    {% include "nav.html" %}
+
+    <main class="flex-1 overflow-y-auto">
+        <div class="px-8 py-8">
+            <div class="mb-8">
+                <h1 class="text-2xl font-bold text-gray-900">Chat Logs</h1>
+                <p class="mt-1 text-sm text-gray-500">Review what visitors ask your chatbot. Use this to add common questions to your FAQs in Settings.</p>
+            </div>
+
+            <div class="rounded-xl bg-white shadow-sm border border-gray-200 overflow-hidden">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Visitor asked</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Chatbot replied</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Date</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100">
+                        {% if chat_logs %}
+                            {% for log in chat_logs %}
+                            <tr class="hover:bg-gray-50">
+                                <td class="px-6 py-4 text-sm text-gray-900 max-w-md">{{ log.user_message }}</td>
+                                <td class="px-6 py-4 text-sm text-gray-600 max-w-md">{{ log.assistant_reply }}</td>
+                                <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">{{ log.created_at|fmt_datetime }}</td>
+                            </tr>
+                            {% endfor %}
+                        {% else %}
+                            <tr>
+                                <td colspan="3" class="px-6 py-16 text-center">
+                                    <svg class="mx-auto h-12 w-12 text-gray-300" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" />
+                                    </svg>
+                                    <p class="mt-4 text-sm font-medium text-gray-900">No chat logs yet</p>
+                                    <p class="mt-1 text-sm text-gray-500">Conversations will appear here as visitors use your chatbot.</p>
+                                    <p class="mt-2 text-xs text-gray-400">Tip: Add common questions to FAQs in Settings to improve responses.</p>
+                                </td>
+                            </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+</div>
+{% endblock %}
